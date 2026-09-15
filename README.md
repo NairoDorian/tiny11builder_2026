@@ -21,7 +21,9 @@
 - [Registry Tweaks](#registry-tweaks)
 - [Directory Structure](#directory-structure)
 - [Project Layout](#project-layout)
+- [Developer Tools](#developer-tools)
 - [CI/CD](#cicd)
+- [Changelog](#changelog)
 - [Credits](#credits)
 
 ---
@@ -85,9 +87,10 @@ This fork incorporates improvements from the following reference projects (in `r
 | `-DryRun` | Preview without modifying the image (no mount, no tweaks) |
 | `-Compress <recovery\|max\|fast\|none>` | ESD compression level for the final image (default: `recovery`) |
 | `-Fast` | Skip DISM component cleanup to speed up the build |
-| `-KeepApps` | Keep all Appx packages (skip removal) |
-| `-Remove` | Remove all Appx packages (default behavior) |
-| `-ZeroTouch` | Generate a zero-touch autoundate.xml with local admin + AutoLogon |
+| `-KeepApps` | Keep all provisioned Appx packages (skip removal) |
+| `-Keep <names>` | Keep specific optional utilities (e.g. `-Keep Terminal,Calculator`) |
+| `-Remove <names>` | Force-remove specific optional utilities (e.g. `-Remove Paint,MediaPlayer`) |
+| `-ZeroTouch` | Generate a zero-touch autounattend.xml with local admin + AutoLogon |
 | `-Yes` | Skip all confirmation prompts (non-interactive) |
 | `-User <name>` | Local admin account username for autoundate.xml |
 | `-Password <pw>` | Local admin account password for autoundate.xml |
@@ -118,21 +121,35 @@ This fork incorporates improvements from the following reference projects (in `r
 ```bat
 LAUNCH_TINY11.bat
 ```
+Or:
+```powershell
+.\tiny11gui.ps1
+```
 
 ### Console Mode (Regular build)
-```bat
-LAUNCH_TINY11.bat
-```
-Or directly:
 ```powershell
-.\tiny11maker.ps1 -ISO "D:\sources\install.esd" -Index 1 -Yes
+# Full build with all tweaks, non-interactive
 .\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -Yes
-.\tiny11maker.ps1 -ISO "D:" -Compress recovery -Yes
+
+# Interactive package selection
+.\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -Custom
+
+# Dry run (preview only, no changes)
+.\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -DryRun -Yes
+
+# Gaming preset with custom scratch disk
+.\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -SCRATCH D -Preset Gaming -Yes
+
+# Zero-touch with custom user
+.\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -ZeroTouch -User "Admin" -Password "pass" -Yes
+
+# Low-RAM profile for VM
+.\tiny11maker.ps1 -ISO "C:\iso\Windows11.iso" -Profile LOWRAM -Yes
 ```
 
 ### Core Mode (Ultra-trimmed for VMs)
 ```powershell
-.\tiny11Coremaker.ps1 -ISO "D:\sources\install.esd" -Yes
+.\tiny11Coremaker.ps1 -ISO "C:\iso\Windows11.iso" -Yes
 ```
 
 ---
@@ -200,12 +217,14 @@ The low-RAM profile (`tiny11LegacyProfile.ps1`) is automatically applied when `-
 | `ISO` | Path to ISO file or mounted drive letter |
 | `Index` | Image index (auto-selected if omitted) |
 | `Profile` | `LOWRAM` or `Legacy` |
+| `Preset` | `Default`, `Gaming`, `Minimal-VM`, or `PrivacyPlus` |
 | `Custom` | Interactive package selector |
 | `DryRun` | Preview only (no changes) |
 | `Compress` | `recovery`, `max`, `fast`, or `none` |
 | `Fast` | Skip DISM cleanup |
-| `Keep` | Keep all packages |
-| `Remove` | Remove all packages |
+| `KeepApps` | Keep all Appx packages (skip removal) |
+| `Keep` | Keep specific optional utilities (string array) |
+| `Remove` | Force-remove specific optional utilities (string array) |
 | `ZeroTouch` | Zero-touch autoundate.xml |
 | `Yes` | Non-interactive |
 | `User` | Admin username |
@@ -239,6 +258,8 @@ Each preset is a JSON file in `presets/`.
 
 ```powershell
 .\tiny11maker.ps1 -ISO D -SCRATCH D -Preset Gaming -Yes
+.\tiny11maker.ps1 -ISO D: -Keep Terminal,Calculator -Yes
+.\tiny11maker.ps1 -ISO C:\iso\Win11.iso -Remove Paint,MediaPlayer -Yes
 ```
 
 ---
@@ -277,7 +298,9 @@ categories:
 - **Telemetry**: Disable DiagTrack, dmwmi, WNP, compatibility telemetry
 - **Search**: Disable Search Highlights, Bing integration, web search
 - **AI/Recall** (24H2+): Disable AIDataAnalysis, AICopilot, Recall
-- **DevHome/Outlook/Teams/Copilot**: Disable pre-installation of these apps
+- **DevHome/Outlook/Copilot/Teams**: Disable pre-installation of these apps
+- **Optional Utilities**: Remove standalone utility apps (Paint, MediaPlayer, etc.) via `-Keep`/`-Remove`
+- **Windows Capabilities**: Remove optional features (OpenSSH.Client, Browser.InternetExplorer, PowerShell 2.0, etc.)
 - **TaskBar**: Center task icons (optional), small taskbar buttons
 - **Explorer**: Remove 3D Objects, This PC entries; show hidden files
 - **Delivery Optimization**: Disable P2P download
@@ -377,7 +400,7 @@ tiny11builder_26/
 
 ---
 
-## Scripts
+## Developer Tools
 
 Validation and testing scripts in `scripts/` (from YmlyZA fork):
 
@@ -385,13 +408,19 @@ Validation and testing scripts in `scripts/` (from YmlyZA fork):
 |--------|---------|
 | `scripts/linter.ps1` | Runs PSScriptAnalyzer for code quality (if installed) |
 | `scripts/parse-check.ps1` | Validates PowerShell syntax, function resolution, and module exports |
-| `scripts/test-core-helpers.ps1` | Unit tests for utility functions (Format-BuildSummary, Test-RobocopySucceeded, New-UnattendXml, etc.) |
+| `scripts/test-core-helpers.ps1` | Unit tests for utility functions (107 tests, all passing) |
 
 Run all validations:
 ```powershell
 .\scripts\parse-check.ps1
 .\scripts\test-core-helpers.ps1
+.\scripts\linter.ps1
 ```
+
+All scripts pass PowerShell syntax validation. The unit test suite covers 20+ functions
+including `Format-BuildSummary`, `Test-RobocopySucceeded`, `New-UnattendXml`,
+`Resolve-BuildPreset`, `Get-OptionalUtilities`, `Resolve-OptionalUtilities`,
+`Assert-WinSxSRebuild`, `Get-AlwaysRemovePackages`, and more.
 
 ## CI/CD
 
@@ -402,6 +431,19 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) validates:
 4. **XML validity** of `autounattend.xml` and `autounattend-arm64.xml`
 5. **JSON validity** of preset files (`presets/*.json`)
 6. **removePackage.txt** package count validation
+
+---
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full version history.
+
+### v1.0 — Ultimate Edition
+- Built on NairoDorian/tiny11builder_2026 as base
+- Incorporated improvements from 14 reference forks
+- Modular architecture with 50 utility functions
+- Windows Forms GUI, presets system, TaskCache ACL takeover
+- 107 unit tests, CI/CD workflow, comprehensive documentation
 
 ---
 
