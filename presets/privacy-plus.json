@@ -1,0 +1,29 @@
+{
+    "name": "Privacy+",
+    "description": "Maximum privacy & system hardening inspired by Ameliorated AME Playbook (Firewall telemetry blocks, fast shutdown, zone info bypass)",
+    "debloat": {
+        "removeAppx": true,
+        "removeCapabilities": true,
+        "removeWindowsPackages": true,
+        "removeOneDrive": true,
+        "removeAI": true,
+        "removeEdge": true,
+        "removeStore": false,
+        "removeDefender": true
+    },
+    "privacy": {
+        "disableTelemetry": true,
+        "disableAds": true,
+        "disableSponsoredApps": true,
+        "disableThirdPartyTelemetry": true,
+        "blockFirewallTelemetry": true,
+        "disableZoneInformation": true
+    },
+    "performance": {
+        "enableFastShutdown": true,
+        "enableDriverBlocklist": true,
+        "tuneMouseLatency": true,
+        "tuneDefenderCpuLimit": true,
+        "enableUltimatePerformance": false
+    }
+}

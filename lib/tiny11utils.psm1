@@ -375,6 +375,131 @@ function Resolve-BuildProfile {
     }
 }
 
+#---------[ Build Preset Resolution ]---------#
+
+## Preset definitions matching the namnguyen97x preset schema.
+## Each preset controls which optional debloat/privacy/performance tweaks are applied.
+$PresetDefaults = @{
+    Standard = @{
+        RemoveAppx              = $true
+        RemoveCapabilities      = $true
+        RemoveWindowsPackages   = $true
+        RemoveOneDrive          = $true
+        RemoveAI                = $true
+        RemoveEdge              = $true
+        RemoveStore             = $false
+        RemoveDefender          = $false
+        DisableTelemetry        = $true
+        DisableAds              = $true
+        DisableSponsoredApps    = $true
+        DisableThirdParty       = $true
+        BlockFirewallTelemetry  = $false
+        DisableZoneInformation  = $false
+        EnableUltimatePerf      = $false
+        EnableFastShutdown      = $false
+        DisableMouseAcceleration = $false
+        EnableUtcClock          = $false
+        TuneMouseLatency        = $true
+        TuneDefenderCpuLimit    = $true
+    }
+    Default = @{
+        RemoveAppx              = $true
+        RemoveCapabilities      = $true
+        RemoveWindowsPackages   = $true
+        RemoveOneDrive          = $true
+        RemoveAI                = $true
+        RemoveEdge              = $true
+        RemoveStore             = $false
+        RemoveDefender          = $false
+        DisableTelemetry        = $true
+        DisableAds              = $true
+        DisableSponsoredApps    = $true
+        DisableThirdParty       = $true
+        BlockFirewallTelemetry  = $false
+        DisableZoneInformation  = $false
+        EnableUltimatePerf      = $false
+        EnableFastShutdown      = $false
+        DisableMouseAcceleration = $false
+        EnableUtcClock          = $false
+        TuneMouseLatency        = $true
+        TuneDefenderCpuLimit    = $true
+    }
+    Gaming = @{
+        RemoveAppx              = $true
+        RemoveCapabilities      = $true
+        RemoveWindowsPackages   = $true
+        RemoveOneDrive          = $true
+        RemoveAI                = $true
+        RemoveEdge              = $true
+        RemoveStore             = $false
+        RemoveDefender          = $false
+        DisableTelemetry        = $true
+        DisableAds              = $true
+        DisableSponsoredApps    = $true
+        DisableThirdParty       = $true
+        BlockFirewallTelemetry  = $false
+        DisableZoneInformation  = $false
+        EnableUltimatePerf      = $true
+        EnableFastShutdown      = $false
+        DisableMouseAcceleration = $true
+        EnableUtcClock          = $true
+        TuneMouseLatency        = $true
+        TuneDefenderCpuLimit    = $true
+    }
+    MinimalVM = @{
+        RemoveAppx              = $true
+        RemoveCapabilities      = $true
+        RemoveWindowsPackages   = $true
+        RemoveOneDrive          = $true
+        RemoveAI                = $true
+        RemoveEdge              = $true
+        RemoveStore             = $true
+        RemoveDefender          = $true
+        DisableTelemetry        = $true
+        DisableAds              = $true
+        DisableSponsoredApps    = $true
+        DisableThirdParty       = $true
+        BlockFirewallTelemetry  = $false
+        DisableZoneInformation  = $false
+        EnableUltimatePerf      = $true
+        EnableFastShutdown      = $false
+        DisableMouseAcceleration = $false
+        EnableUtcClock          = $false
+        TuneMouseLatency        = $true
+        TuneDefenderCpuLimit    = $true
+    }
+    PrivacyPlus = @{
+        RemoveAppx              = $true
+        RemoveCapabilities      = $true
+        RemoveWindowsPackages   = $true
+        RemoveOneDrive          = $true
+        RemoveAI                = $true
+        RemoveEdge              = $true
+        RemoveStore             = $false
+        RemoveDefender          = $true
+        DisableTelemetry        = $true
+        DisableAds              = $true
+        DisableSponsoredApps    = $true
+        DisableThirdParty       = $true
+        BlockFirewallTelemetry  = $true
+        DisableZoneInformation  = $true
+        EnableUltimatePerf      = $false
+        EnableFastShutdown      = $true
+        DisableMouseAcceleration = $false
+        EnableUtcClock          = $false
+        TuneMouseLatency        = $true
+        TuneDefenderCpuLimit    = $true
+    }
+}
+
+function Resolve-BuildPreset {
+    param([string]$PresetName)
+    if (-not $PresetName) { return $PresetDefaults.Standard }
+    $preset = $PresetDefaults[$PresetName]
+    if (-not $preset) { throw "Unknown preset '$PresetName'. Available: $($PresetDefaults.Keys -join ', ')" }
+    return $preset
+}
+
 #---------[ Image Index Parsing ]---------#
 
 function Get-AvailableImageIndex {
@@ -1131,6 +1256,7 @@ Export-ModuleMember -Function Get-TaskCacheGuidsForBuild
 Export-ModuleMember -Function Invoke-SafeOfflineRegistryUnload
 Export-ModuleMember -Function Invoke-SafeDismountImage
 Export-ModuleMember -Function Resolve-BuildProfile
+Export-ModuleMember -Function Resolve-BuildPreset
 Export-ModuleMember -Function Get-AvailableImageIndex
 Export-ModuleMember -Function Test-ImageIndexAvailable
 Export-ModuleMember -Function Get-RequiredScratchBytes

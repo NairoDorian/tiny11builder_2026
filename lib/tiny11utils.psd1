@@ -24,6 +24,7 @@
         'Invoke-SafeOfflineRegistryUnload',
         'Invoke-SafeDismountImage',
         'Resolve-BuildProfile',
+        'Resolve-BuildPreset',
         'Get-AvailableImageIndex',
         'Test-ImageIndexAvailable',
         'Get-RequiredScratchBytes',

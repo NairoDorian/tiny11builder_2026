@@ -1,0 +1,25 @@
+{
+    "name": "Default",
+    "description": "Balanced debloat with standard privacy and performance tweaks for general use",
+    "debloat": {
+        "removeAppx": true,
+        "removeCapabilities": true,
+        "removeWindowsPackages": true,
+        "removeOneDrive": true,
+        "removeAI": true,
+        "removeEdge": true,
+        "removeStore": false,
+        "removeDefender": false
+    },
+    "privacy": {
+        "disableTelemetry": true,
+        "disableAds": true,
+        "disableSponsoredApps": true,
+        "disableThirdPartyTelemetry": true
+    },
+    "performance": {
+        "enableUltimatePerformance": false,
+        "tuneMouseLatency": true,
+        "tuneDefenderCpuLimit": true
+    }
+}

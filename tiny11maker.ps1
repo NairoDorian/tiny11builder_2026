@@ -43,6 +43,10 @@
 .PARAMETER LowRam
     Apply the 1 GB-class low-RAM profile (conservative, keeps WU/Defender/serviceable).
 
+.PARAMETER Preset
+    Build preset controlling which optional tweaks are applied. Options:
+    Default, Gaming, Minimal-VM, PrivacyPlus. (Default: Default)
+
 .PARAMETER KeepApps
     Comma-separated list of package prefixes to ADD BACK into removal (overrides defaults).
 
@@ -63,6 +67,7 @@
     .\tiny11maker.ps1 -ISO E -SCRATCH D -Custom
     .\tiny11maker.ps1 -ISO D -Index 1 -Yes -ZeroTouch -User Bob -Password "P@ssw0rd" -TimeZone "China Standard Time"
     .\tiny11maker.ps1 -ISO E -SCRATCH D -LowRam
+    .\tiny11maker.ps1 -ISO E -SCRATCH D -Preset Gaming
     .\tiny11maker.ps1 -ISO E -DryRun
 
 .NOTES
@@ -84,6 +89,7 @@ param (
     [switch]$Fast,
     [switch]$ZeroTouch,
     [switch]$LowRam,
+    [string]$Preset,
     [string[]]$KeepApps,
     [string]$User = 'User',
     [string]$Password = '',
@@ -115,6 +121,14 @@ if (-not (Test-Path -Path $utilsModulePath -PathType Leaf)) {
     exit 1
 }
 Import-Module -Name $utilsModulePath -Force
+
+#---------[ Build Preset Resolution ]---------#
+$preset = if ($Preset) {
+    Write-Output "Using preset: $Preset"
+    Resolve-BuildPreset -PresetName $Preset
+} else {
+    Resolve-BuildPreset -PresetName 'Default'
+}
 
 #---------[ Show Usage ]---------#
 function Show-Usage {
@@ -538,7 +552,7 @@ foreach ($package in $packagesToRemove) {
 }
 
 #---------[ Remove Edge ]---------#
-$removeEdge = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.MicrosoftEdge.Stable') -or (Test-PrefixSelected $selectedPrefixes 'Edge')
+$removeEdge = ($preset.RemoveEdge) -and ((-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.MicrosoftEdge.Stable') -or (Test-PrefixSelected $selectedPrefixes 'Edge'))
 if ($removeEdge) {
     Write-Output "Removing Edge:"
     Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
@@ -559,7 +573,7 @@ if ($removeEdge) {
 }
 
 #---------[ Remove OneDrive ]---------#
-$removeOneDrive = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'OneDrive')
+$removeOneDrive = ($preset.RemoveOneDrive) -and ((-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'OneDrive'))
 if ($removeOneDrive) {
     Write-Output "Removing OneDrive:"
     if (Test-Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe") {
@@ -692,12 +706,12 @@ if (-not $Yes) {
 }
 
 #---------[ Prevent Outlook / DevHome / Copilot / Teams Re-installation ]---------#
-$removeDevHome = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Windows.DevHome')
+$removeDevHome = ($preset.RemoveAI) -and ((-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Windows.DevHome'))
 $removeOutlook = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.OutlookForWindows')
-$removeCopilot = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Windows.Copilot') -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Copilot')
+$removeCopilot = ($preset.RemoveAI) -and ((-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Windows.Copilot') -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Copilot'))
 $removeTeams = (-not $Custom) -or (Test-PrefixSelected $selectedPrefixes 'Microsoft.Windows.Teams') -or (Test-PrefixSelected $selectedPrefixes 'MicrosoftTeams') -or (Test-PrefixSelected $selectedPrefixes 'MSTeams')
 
-if (-not $Custom -or $removeOutlook) {
+if ($removeOutlook) {
     Write-Output "Prevent installation of Outlook:"
     Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
     Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
@@ -705,13 +719,13 @@ if (-not $Custom -or $removeOutlook) {
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
 }
 
-if (-not $Custom -or $removeDevHome) {
+if ($removeDevHome) {
     Write-Output "Prevents installation of DevHome:"
     Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate' 'workCompleted' 'REG_DWORD' '1'
     Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate'
 }
 
-if (-not $Custom -or $removeCopilot) {
+if ($removeCopilot) {
     Write-Output "Disabling Copilot"
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 'REG_DWORD' '1'
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 'REG_DWORD' '0'
@@ -721,7 +735,7 @@ if (-not $Custom -or $removeCopilot) {
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 'REG_DWORD' '1'
 }
 
-if (-not $Custom -or $removeTeams) {
+if ($removeTeams) {
     Write-Output "Prevents installation of Teams:"
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
 }

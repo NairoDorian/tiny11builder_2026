@@ -1,5 +1,5 @@
 # Tiny11 Builder Ultimate Edition — CI
-# Validates PowerShell scripts for syntax errors on each push/PR.
+# Validates PowerShell scripts, XML, and JSON on each push/PR.
 
 name: CI
 
@@ -20,7 +20,7 @@ jobs:
       - name: Set up PowerShell
         uses: actions/setup-pwsh@v2
 
-      - name: Install pwsh (fallback for Windows)
+      - name: Install pwsh (fallback)
         if: runner.os == 'Windows'
         run: |
           choco install powershell-core -y || echo "Using built-in PowerShell 5.1"
@@ -28,13 +28,11 @@ jobs:
       - name: Check PowerShell scripts syntax
         shell: pwsh
         run: |
-          $scripts = Get-ChildItem -Path . -Include *.ps1,*.psm1 -Recurse -Exclude "repos\**"
+          $scripts = Get-ChildItem -Path . -Include *.ps1,*.psm1 -Recurse -Exclude "repos\**" | Where-Object { $_.FullName -notmatch '\\repos\\' }
           foreach ($script in $scripts) {
             Write-Host "Checking: $($script.FullName)"
             $errors = $null
-            $null = [System.Management.Automation.PSParser]::Tokenize(
-              (Get-Content -Raw -Path $script.FullName), [ref]$errors
-            )
+            $null = [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors)
             if ($errors) {
               Write-Error "$($script.Name) has $($errors.Count) parse error(s):"
               $errors | ForEach-Object { Write-Error $_.Message }
@@ -42,6 +40,18 @@ jobs:
             }
             Write-Host "  OK: $($script.Name)"
           }
+
+      - name: Run parse-check (function resolution)
+        if: always()
+        shell: pwsh
+        run: |
+          & .\scripts\parse-check.ps1
+
+      - name: Run unit tests
+        if: always()
+        shell: pwsh
+        run: |
+          & .\scripts\test-core-helpers.ps1
 
   validate-xml:
     name: Validate XML files
@@ -52,26 +62,28 @@ jobs:
 
       - name: Validate autoundate XML
         run: |
-          for f in autounattend.xml autoundate-arm64.xml; do
+          for f in autounattend.xml autounattend-arm64.xml; do
             if [ -f "$f" ]; then
               echo "Validating: $f"
               xmllint --noout "$f" && echo "  OK: $f" || exit 1
             fi
           done
 
-  validate-json:
-    name: Validate JSON files
-    on:
-      push:
-        branches: [main, master]
-      pull_request:
-        branches: [main, master]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate package.json
+      - name: Validate preset JSON
         run: |
-          if [ -f "package.json" ]; then
-            node --check package.json 2>/dev/null || python3 -c "import json; json.load(open('package.json'))"
-            echo "package.json OK"
-          fi
+          for f in presets/default.json presets/gaming.json presets/minimal-vm.json presets/privacy-plus.json; do
+            if [ -f "$f" ]; then
+              echo "Validating: $f"
+              python3 -c "import json; json.load(open('$f'))" && echo "  OK: $f" || exit 1
+            fi
+          done
+
+      - name: Validate removePackage.txt
+        run: |
+          python3 -c "
+          lines = open('removePackage.txt').read().strip().splitlines()
+          pkgs = [l.strip() for l in lines if l.strip() and not l.startswith('#')]
+          if len(pkgs) == 0:
+              print('WARNING: removePackage.txt is empty')
+          print(f'  OK: {len(pkgs)} packages defined')
+          "

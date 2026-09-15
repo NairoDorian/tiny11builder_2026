@@ -33,6 +33,7 @@ This fork incorporates improvements from the following reference projects (in `r
 | Fork | Key Contributions |
 |------|-------------------|
 | **NairoDorian/tiny11builder_2026** | Base: two-script architecture (maker + coremaker), autoundate.xml |
+| **bedlaj/tiny11builder** | Original ntdevlabs/tiny11builder — foundational debloat + registry tweaks |
 | **chrisGrando/tiny11maker-reforged** | Windows Forms GUI, modular design, LAUNCH_TINY11.bat launcher, auto-ISO download, version tracking |
 | **vinisebold/tiny11builder-revamped** | lib/tiny11utils.psm1 backbone, C# privilege escalation (AdjPriv.cs), TaskCache ACL takeover, version-gated GUIDs, emergency cleanup trap, interactive package selector |
 | **zPoche/tiny11builder-v2** | Multi-arch (amd64 + ARM64), -Custom/-DryRun/-Compress/-Fast flags, pre-flight validation, scratch disk checks, robocopy ISO copy, dynamic autoundate patching, stale-mount cleanup |
@@ -40,12 +41,12 @@ This fork incorporates improvements from the following reference projects (in `r
 | **prismatecas-ui/tiny11builder** | WPF-style GUI, smart detection, granular app control docs |
 | **MOPELotus/tiny11builder** | Lotus profile with local admin, extensive privacy settings, payload/ system, SetupComplete.cmd |
 | **DFwindows11_builder** | Browser management (Browsers/), comprehensive removePackage.txt |
-| **user129233/tiny11builder** | Enhanced unattended.xml with scheduled task + RunSynchronous approach |
+| **user129233/tiny11builder** | Enhanced unattended.xml (compact install, RunSynchronous bypass, FirstLogonCommands) |
 | **bluecloud122/tiny11builder** | tiny11LegacyProfile.ps1 (1 GB-class low-RAM profile) |
 | **keepitupkitty/tiny11builder** | Latest Appx package IDs (24H2-compatible) |
 | **SamHimmy/tiny11builder** | Latest Appx package IDs |
 | **AhmedLolyProductions/Loly11** | Additional package removal entries |
-| **zPoche/tiny11builder-v2** | Architecture-aware autoundate.xml |
+| **namnguyen97x/tiny-auto-builder** | Preset system (default/gaming/minimal-vm/privacy-plus) |
 
 ### Core Improvements
 
@@ -64,6 +65,8 @@ This fork incorporates improvements from the following reference projects (in `r
   `autounattend.xml` (amd64 vs arm64)
 - **Emergency cleanup trap**: `trap` block guarantees registry hives are unloaded and mount
   points are cleaned up on any error
+- **Enhanced autounattend.xml**: RunSynchronous TPM/SecureBoot/RAM bypass (user129233 fork),
+  compact install, local admin + AutoLogon, FirstLogonCommands
 - **Dynamic autoundate.xml**: Patches the image index into the answer file and supports
   custom user/password/timezone
 - **Auto ISO mounting**: Accepts an ISO file path (auto-mounts) or a mounted drive letter
@@ -82,7 +85,7 @@ This fork incorporates improvements from the following reference projects (in `r
 | `-DryRun` | Preview without modifying the image (no mount, no tweaks) |
 | `-Compress <recovery\|max\|fast\|none>` | ESD compression level for the final image (default: `recovery`) |
 | `-Fast` | Skip DISM component cleanup to speed up the build |
-| `-Keep` | Keep all Appx packages (skip removal) |
+| `-KeepApps` | Keep all Appx packages (skip removal) |
 | `-Remove` | Remove all Appx packages (default behavior) |
 | `-ZeroTouch` | Generate a zero-touch autoundate.xml with local admin + AutoLogon |
 | `-Yes` | Skip all confirmation prompts (non-interactive) |
@@ -90,6 +93,7 @@ This fork incorporates improvements from the following reference projects (in `r
 | `-Password <pw>` | Local admin account password for autoundate.xml |
 | `-TimeZone <tz>` | Time zone for autoundate.xml (default: `UTC`) |
 | `-SCRATCH <drive>` | Override the scratch disk drive letter |
+| `-Preset <name>` | Build preset: Default, Gaming, Minimal-VM, PrivacyPlus |
 | `-Language <lcid>` | Override language detection |
 
 ---
@@ -221,6 +225,22 @@ The low-RAM profile (`tiny11LegacyProfile.ps1`) is automatically applied when `-
 | **LowRAM** (`-Profile LOWRAM`) | Standard + memory-saving tweaks | 1-2 GB RAM VMs |
 | **Legacy** | Reduced scope for older builds | Compatibility testing |
 
+### Presets (`-Preset` flag, from namnguyen97x/tiny-auto-builder)
+
+Presets control which optional debloat, privacy, and performance tweaks are applied.
+Each preset is a JSON file in `presets/`.
+
+| Preset | Description | Edge | Defender | Store | AI/Copilot | Perf |
+|--------|-------------|------|----------|-------|------------|------|
+| **Default** | Balanced debloat for daily use | Remove | Keep | Keep | Remove | Standard |
+| **Gaming** | Low latency, maximum gaming perf | Remove | Keep | Keep | Remove | Ultimate + mouse accel off |
+| **Minimal-VM** | Ultra-light for testing/lab VMs | Remove | Remove | Remove | Remove | Ultimate |
+| **PrivacyPlus** | Maximum privacy/hardening (AME-inspired) | Remove | Remove | Keep | Remove | Fast shutdown |
+
+```powershell
+.\tiny11maker.ps1 -ISO D -SCRATCH D -Preset Gaming -Yes
+```
+
 ---
 
 ## Removed Packages
@@ -273,34 +293,59 @@ categories:
 ```text
 tiny11builder_26/
 ├── .github/
+│   ├── FUNDING.yml
 │   └── workflows/
-│       └── ci.yml              # CI: PowerShell syntax + XML/JSON validation
+│       └── ci.yml              # CI: syntax, lint, XML/JSON, unit tests
 ├── docs/
-│   └── lista_de_apps.md        # App removal reference
+│   ├── lista_de_apps.md        # App removal reference
+│   └── lista_simples_apps.txt  # Machine-readable package list
 ├── payload/
 │   ├── README.md
-│   └── SetupComplete.cmd       # Post-login automation (MOPELotus fork)
+│   ├── SetupComplete.cmd       # Post-login automation (MOPELotus fork)
+│   ├── packages/               # Optional installer scripts
+│   ├── VCRedist/               # VC++ redistributables
+│   ├── DotNet/                 # .NET Desktop Runtime
+│   ├── DirectX/                 # DirectX 9.0c
+│   ├── Fonts/                   # Custom fonts
+│   ├── Wallpapers/              # Custom wallpapers
+│   ├── PowerShell/             # Latest PowerShell MSI
+│   └── Store/                  # Microsoft Store (LTSC)
 ├── Browsers/
-│   └── README.md               # Browser installer reference (DFwindows11 fork)
+│   ├── README.md               # Browser management docs
+│   ├── chrome_installer.cmd    # Silent Chrome installer
+│   └── firefox_installer.cmd   # Silent Firefox installer
 ├── lib/
-│   ├── tiny11utils.psm1        # Shared utility functions
+│   ├── AdjPriv.cs              # C# privilege helper reference
+│   ├── tiny11utils.psm1        # Shared utility functions (45 functions)
 │   ├── tiny11utils.psd1        # Module manifest
-│   ├── tiny11gui.psm1          # Windows Forms GUI module (reforged fork)
+│   ├── tiny11gui.psm1          # Windows Forms GUI module
 │   └── tiny11gui.psd1          # Module manifest
+├── presets/
+│   ├── default.json            # Balanced debloat (namnguyen97x fork)
+│   ├── gaming.json             # Gaming optimization
+│   ├── minimal-vm.json         # Ultra-light VM
+│   └── privacy-plus.json       # Maximum privacy/hardening
 ├── resources/
 │   ├── T11M_icon.ico           # Application icon
 │   └── T11M_splash.png         # Splash screen
-├── repos/                      # Reference forks (gitignored by upstream)
+├── repos/                      # Reference forks (gitignored)
+├── scripts/
+│   ├── linter.ps1              # PSScriptAnalyzer lint
+│   ├── parse-check.ps1         # Parse + function resolution check
+│   └── test-core-helpers.ps1   # Unit tests for utility functions
 ├── .gitignore
 ├── LICENSE
+├── CHANGELOG.md                # Version history
+├── CONTRIBUTING.md             # Contributor guide
 ├── LAUNCH_TINY11.bat           # Admin-check launcher
 ├── Run.bat                     # UAC elevation wrapper
 ├── tiny11maker.ps1             # Main builder script
 ├── tiny11Coremaker.ps1         # Core / ultra-trimmed builder
 ├── tiny11gui.ps1               # GUI entry point
-├── tiny11LegacyProfile.ps1     # Low-RAM profile (bluecloud122 fork)
+├── tiny11LegacyProfile.ps1     # Low-RAM profile
 ├── removePackage.txt           # Externalized package list
-├── autounattend.xml            # OOBE answer file (enhanced)
+├── autounattend.xml            # Enhanced OOBE answer file
+├── autounattend-arm64.xml      # ARM64 answer file
 └── README.md                   # This file
 ```
 
@@ -332,12 +377,31 @@ tiny11builder_26/
 
 ---
 
+## Scripts
+
+Validation and testing scripts in `scripts/` (from YmlyZA fork):
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/linter.ps1` | Runs PSScriptAnalyzer for code quality (if installed) |
+| `scripts/parse-check.ps1` | Validates PowerShell syntax, function resolution, and module exports |
+| `scripts/test-core-helpers.ps1` | Unit tests for utility functions (Format-BuildSummary, Test-RobocopySucceeded, New-UnattendXml, etc.) |
+
+Run all validations:
+```powershell
+.\scripts\parse-check.ps1
+.\scripts\test-core-helpers.ps1
+```
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) validates:
 1. **PowerShell syntax** for all `.ps1/.psm1` files (excludes `repos/`)
-2. **XML validity** of `autounattend.xml` and `autounattend-arm64.xml`
-3. **JSON validity** (if `package.json` exists)
+2. **Function resolution** (`scripts/parse-check.ps1`) — ensures all called functions exist
+3. **Unit tests** (`scripts/test-core-helpers.ps1`) — validates utility functions
+4. **XML validity** of `autounattend.xml` and `autounattend-arm64.xml`
+5. **JSON validity** of preset files (`presets/*.json`)
+6. **removePackage.txt** package count validation
 
 ---
 
