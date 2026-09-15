@@ -28,8 +28,8 @@ foreach ($name in $scripts) {
     $path = Join-Path $repo $name
     if (-not (Test-Path $path)) { continue }
     $errors = $null
-    $null = [System.Management.Automation.Language.Parser]::Tokenize(
-        (Get-Content -Raw -Path $path), [ref]$errors
+    $null = [System.Management.Automation.Language.Parser]::ParseInput(
+        (Get-Content -Raw -Path $path), [ref]$null, [ref]$errors
     )
     if ($errors) {
         Write-Host "FAIL: $name has $($errors.Count) parse error(s):"
