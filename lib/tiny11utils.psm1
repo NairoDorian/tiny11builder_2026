@@ -1327,6 +1327,190 @@ function Get-AlwaysRemovePackages {
     )
 }
 
+function Get-MaxParallelJobs {
+    # Auto-detect safe parallelism from environment. Respects MAX_PARALLEL_JOBS
+    # override; otherwise uses 80% of processor count (minimum 2).
+    $envMax = [int]$env:MAX_PARALLEL_JOBS -ErrorAction SilentlyContinue
+    if ($envMax -and $envMax -gt 0) { return $envMax }
+    $proc   = [int]$env:NUMBER_OF_PROCESSORS -ErrorAction SilentlyContinue
+    if (-not $proc -or $proc -lt 1) { $proc = 4 }
+    $calc = [int]($proc * 0.8)
+    if ($calc -lt 2) { $calc = 2 }
+    return $calc
+}
+
+function Get-OptionalCapabilitiesToRemove {
+    # Language-aware list of optional Windows capabilities to remove.
+    # Mirrors the namnguyen97x debloater module's Get-CapabilitiesToRemove.
+    param(
+        [string]$LanguageCode = 'en-US',
+        [hashtable]$Preset
+    )
+    $base = @(
+        'Browser.InternetExplorer~~~~0.0.0.0',
+        'Microsoft.Windows.MSPaint~~~~0.0.0.0',
+        'Microsoft.WindowsStepsRecorder~~~~0.0.0.0',
+        'Microsoft.Windows.WordPad~~~~0.0.0.0',
+        'Microsoft.Windows.Media.Player~~~~0.0.0.0',
+        'Microsoft.Windows.PowerShell.2.0~~~~0.0.1.0'
+    )
+    $languageFamilies = @{
+        'zh-CN' = @('Microsoft.Language.HanzhonglishInput', 'Microsoft.Language.HanYuShengPinPinyin')
+        'zh-TW' = @('Microsoft.Language.QuickInput.TW')
+        'ja-JP' = @('Microsoft.Language.Hiragana', 'Microsoft.Language.Handwriting')
+        'ko-KR' = @('Microsoft.Language.Handwriting.Korean')
+    }
+    $langCaps = $languageFamilies[$LanguageCode]
+    if ($langCaps) { $base += $langCaps }
+    return $base
+}
+
+function Get-AdditionalWindowsPackagesToRemove {
+    # Language-aware list of additional Windows packages (beyond removePackage.txt)
+    # to remove via DISM /Remove-Package. Mirrors namnguyen97x debloater module.
+    param(
+        [string]$LanguageCode = 'en-US',
+        [hashtable]$Preset
+    )
+    $langPrefix = $LanguageCode.Substring(0, 2)
+    $base = @(
+        "Microsoft-Windows-LanguageFeatures-Basic-$langPrefix-Package~",
+        "Microsoft-Windows-LanguageFeatures-OCR-$langPrefix-Package~",
+        "Microsoft-Windows-LanguageFeatures-Handwriting-$langPrefix-Package~",
+        "Microsoft-Windows-LanguageFeatures-Speech-$langPrefix-Package~",
+        "Microsoft-Windows-LanguageFeatures-TextToSpeech-$langPrefix-Package~",
+        "Microsoft-Windows-LanguageFeatures-Roaming-$langPrefix-Package~"
+    )
+    return $base
+}
+
+function Remove-BloatwareFiles {
+    # Removes Edge, OneDrive, and Edge WebView residual files from the mounted image.
+    # Uses takeown + icacls on WinSxS-residing files (mirrors namnguyen97x approach).
+    param(
+        [Parameter(Mandatory = $true)][string]$MountPath,
+        [string]$Architecture = 'amd64',
+        [switch]$RemoveEdge,
+        [switch]$RemoveOneDrive,
+        [switch]$RemoveWebView
+    )
+    $logPrefix = '[Remove-BloatwareFiles]'
+
+    if ($RemoveEdge -or $RemoveWebView) {
+        $edgeDirs = @(
+            "$MountPath\Program Files (x86)\Microsoft\Edge",
+            "$MountPath\Program Files (x86)\Microsoft\EdgeUpdate",
+        )
+        foreach ($dir in $edgeDirs) {
+            if (Test-Path $dir) {
+                Write-Output "$logPrefix Removing $dir"
+                Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        # Edge WebView2 from WinSxS (needs takeown)
+        $webViewPattern = switch ($Architecture) {
+            'arm64' { "$MountPath\Windows\WinSxS\arm64_microsoft-edge-webview_*" }
+            default { "$MountPath\Windows\WinSxS\amd64_microsoft-edge-webview_*" }
+        }
+        Get-ChildItem -Path $webViewPattern -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Output "$logPrefix Removing $($_.Name) (takeown)"
+            takeown /F $_.FullName /A /R /D Y | Out-Null
+            icacls $_.FullName /grant "Administrators:F" /T /C /Q | Out-Null
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($RemoveOneDrive) {
+        $oneDriveDirs = @(
+            "$MountPath\Windows\System32\OneDriveSetup.exe",
+        )
+        foreach ($item in $oneDriveDirs) {
+            if (Test-Path $item) {
+                Write-Output "$logPrefix Removing $item"
+                Remove-Item -LiteralPath $item -Force -ErrorAction SilentlyContinue
+            }
+        }
+        # Start Menu shortcuts and tile cache
+        $oneDriveShortcuts = @(
+            "$MountPath\ProgramData\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk"
+        )
+        foreach ($sc in $oneDriveShortcuts) {
+            if (Test-Path $sc) { Remove-Item -LiteralPath $sc -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+function Apply-ExtendedTweaks {
+    # Applies extended telemetry/performance/privacy tweaks driven by preset fields.
+    # Mirrors the namnguyen97x Apply-ExtendedTelemetryAndPerformanceTweaks function
+    # but uses the 26 fork's Set-RegistryValue helper.
+    param(
+        [string]$RegPrefix = 'HKLM\z',
+        [bool]$DisableThirdPartyTelemetry = $true,
+        [bool]$ TuneMouseLatency            = $true,
+        [bool]$ TuneDefenderCpuLimit         = $true,
+        [bool]$ EnableUltimatePerformance    = $false,
+        [bool]$ DisableMouseAcceleration     = $false,
+        [bool]$ EnableUtcClock               = $true,
+        [bool]$ BlockFirewallTelemetry       = $false,
+        [bool]$ DisableZoneInformation       = $false,
+        [bool]$ EnableFastShutdown           = $false,
+        [bool]$ EnableDriverBlocklist        = $false,
+        [bool]$ BypassSecureBoot = $true
+    )
+
+    if ($TuneMouseLatency) {
+        Set-RegistryValue "$RegPrefix\Control\RawOuputThreads" 'MouseDataQueueSize' 'REG_DWORD' '100'
+        Set-RegistryValue "$RegPrefix\Control\RawOuputThreads" 'KeyboardDataQueueSize' 'REG_DWORD' '100'
+    }
+
+    if ($DisableMouseAcceleration) {
+        Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Services\mouclass\Parameters" 'MouseSpeed' 'REG_SZ' '0'
+        Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Services\mouclass\Parameters" 'MouseThreshold1' 'REG_SZ' '0'
+        Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Services\mouclass\Parameters" 'MouseThreshold2' 'REG_SZ' '0'
+    }
+
+    if ($TuneDefenderCpuLimit) {
+        Set-RegistryValue "$RegPrefix\SOFTWARE\Policies\Microsoft\Windows Defender\Scan" 'AvgCPULoadFactor' 'REG_DWORD' '25'
+    }
+
+    if ($EnableUtcClock) {
+        Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Control\TimeZoneInformation" 'RealTimeIsUniversal' 'REG_DWORD' '1'
+    }
+
+    if ($BlockFirewallTelemetry) {
+        # Outbound rules blocking telemetry hosts
+        $rules = @(
+            'SearchHost.exe',
+            'StartMenuExperienceHost.exe',
+            'SystemSettings.exe',
+            'explorer.exe'
+        )
+        foreach ($app in $rules) {
+            Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\RestrictedServices\AppIso\FirewallRule" $app 'REG_SZ' 'Block'
+        }
+    }
+
+    if ($DisableZoneInformation) {
+        Set-RegistryValue "$RegPrefix\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments" 'SaveZoneInformation' 'REG_DWORD' '1'
+    }
+
+    if ($EnableFastShutdown) {
+        Set-RegistryValue "$RegPrefix\Control" 'WaitToKillServiceTimeout' 'REG_SZ' '2000'
+        Set-RegistryValue "$RegPrefix\Control" 'HungAppTimeout' 'REG_SZ' '2000'
+        Set-RegistryValue "$RegPrefix\Control" 'AutoEndTasks' 'REG_SZ' '1'
+    }
+
+    if ($EnableDriverBlocklist) {
+        Set-RegistryValue "$RegPrefix\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" 'VulnerableDriverBlocklistEnable' 'REG_DWORD' '1'
+    }
+
+    if ($EnableUltimatePerformance) {
+        # Scheduled powercfg via RunOnce
+        Set-RegistryValue "$RegPrefix\SYSTEM\CurrentControlSet\Control\Session Manager" 'SetupRunOncePowerPlan' 'REG_SZ' 'powercfg /s 8c5e7cd5-55d9-4a4d-a164-56922d0e4081'
+    }
+}
+
 Export-ModuleMember -Function Format-ProcessArgument
 Export-ModuleMember -Function Build-ProcessArgumentString
 Export-ModuleMember -Function Assert-CommandExitCode
@@ -1377,3 +1561,8 @@ Export-ModuleMember -Function Get-OptionalUtilities
 Export-ModuleMember -Function Resolve-OptionalUtilities
 Export-ModuleMember -Function Assert-WinSxSRebuild
 Export-ModuleMember -Function Get-AlwaysRemovePackages
+Export-ModuleMember -Function Get-MaxParallelJobs
+Export-ModuleMember -Function Get-OptionalCapabilitiesToRemove
+Export-ModuleMember -Function Get-AdditionalWindowsPackagesToRemove
+Export-ModuleMember -Function Remove-BloatwareFiles
+Export-ModuleMember -Function Apply-ExtendedTweaks

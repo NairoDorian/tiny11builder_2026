@@ -15,11 +15,17 @@
         "disableTelemetry": true,
         "disableAds": true,
         "disableSponsoredApps": true,
-        "disableThirdPartyTelemetry": true
+        "disableThirdPartyTelemetry": true,
+        "blockFirewallTelemetry": true,
+        "disableZoneInformation": true
     },
     "performance": {
         "enableUltimatePerformance": true,
         "tuneMouseLatency": true,
-        "tuneDefenderCpuLimit": true
+        "tuneDefenderCpuLimit": true,
+        "disableMouseAcceleration": true,
+        "enableUtcClock": true,
+        "enableFastShutdown": true,
+        "enableDriverBlocklist": false
     }
 }

@@ -134,6 +134,13 @@ if (-not (Test-Path -Path $utilsModulePath -PathType Leaf)) {
 }
 Import-Module -Name $utilsModulePath -Force
 
+#---------[ Host Performance Optimisation ]---------#
+# Boost build throughput: set High priority, cap DISM threads, and silence AV.
+[System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
+$env:DISM_MAX_THREADS = Get-MaxParallelJobs
+$env:NUMBER_OF_PROCESSORS = [Environment]::ProcessorCount
+Write-Output "[*] Host performance: PriorityClass=High, DISM threads=$($env:DISM_MAX_THREADS), cores=$($env:NUMBER_OF_PROCESSORS)"
+
 #---------[ Build Preset Resolution ]---------#
 $preset = if ($Preset) {
     Write-Output "Using preset: $Preset"
@@ -166,6 +173,10 @@ ADVANCED:
   -ZeroTouch        Also WIPE DISK 0 and auto-install (DESTRUCTIVE; VMs/test only)
   -LowRam           Apply conservative 1 GB-class profile (keeps WU/Defender/serviceable)
   -KeepApps <list>    Comma-separated prefixes to always remove (overrides removePackage.txt)
+  -Keep <list>        Optional utility names to keep (Terminal, Calculator, Notepad, etc.)
+  -Remove <list>      Optional utility names to remove (overrides defaults)
+  -Preset <name>      Load a build preset: Default, Gaming, Minimal-VM, PrivacyPlus
+  -Language <code>    Language code (e.g. en-US, zh-CN, ja-JP) for language-aware package removal
 
 UNATTENDED INSTALL (baked into the image):
   -User <name>        Local admin account (default: User)
@@ -610,12 +621,7 @@ if ($resolvedUtils.RemovePrefixes) {
 
 #---------[ Optional Windows Capabilities ]---------#
 Write-Output "Removing optional Windows capabilities (capabilities)..."
-$capsToRemove = @(
-    'Browser.InternetExplorer~~~~0.0.0.0',
-    'Microsoft.Windows.PowerShell.2.0~~~~0.0.0.0',
-    'Microsoft.Windows.MSPaint~~~~0.0.0.0',
-    'Microsoft.Windows.SecHealthUI~~~~0.0.0.0'
-)
+$capsToRemove = Get-OptionalCapabilitiesToRemove -LanguageCode $LanguageCode -Preset $preset
 foreach ($cap in $capsToRemove) {
     try {
         Remove-WindowsCapability -Path "$ScratchDisk\scratchdir" -Name $cap -ErrorAction SilentlyContinue
@@ -624,6 +630,26 @@ foreach ($cap in $capsToRemove) {
     }
 }
 Write-Output "Capability removal complete."
+
+#---------[ Additional Windows Packages (language-aware) ]---------#
+if ($preset.RemoveWindowsPackages) {
+    Write-Output "Removing additional language-specific Windows packages..."
+    $packagesToRemove = Get-AdditionalWindowsPackagesToRemove -LanguageCode $LanguageCode -Preset $preset
+    foreach ($pkg in $packagesToRemove) {
+        try {
+            Dism.exe /Image:"$ScratchDisk\scratchdir" /Remove-Package /PackageName:$pkg /NoRestart /quiet | Out-Null
+            Assert-CommandExitCode -Label "Remove-Package: $pkg"
+        } catch {
+            Write-Warning "Failed to remove package: $pkg"
+        }
+    }
+    Write-Output "Additional package removal complete."
+}
+
+#---------[ Remove residual bloatware files (Edge/WebView/OneDrive) ]---------#
+Write-Output "Removing residual bloatware files..."
+Remove-BloatwareFiles -MountPath "$ScratchDisk\scratchdir" -Architecture $architecture -RemoveEdge:$removeEdge -RemoveOneDrive:$removeOneDrive
+Write-Output "Residual file removal complete."
 
 Write-Output "Removal complete!"
 Start-Sleep -Seconds 2
@@ -789,6 +815,10 @@ Remove-Item -Path "$tasksPath\Microsoft\Windows\Application Experience\ProgramDa
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Chkdsk\Proxy" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Error Reporting\QueueReporting" -Force -ErrorAction SilentlyContinue
 Write-Host "Task files have been deleted."
+
+#---------[ Extended Telemetry & Performance Tweaks (from preset) ]---------#
+Write-Output "Applying extended telemetry and performance tweaks..."
+Apply-ExtendedTweaks -Preset $preset
 
 #---------[ TaskCache Registry ACL Takeover + GUID Deletion ]---------#
 Write-Host "Deleting scheduled task cache entries..."

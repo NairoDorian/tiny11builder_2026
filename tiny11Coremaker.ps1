@@ -42,6 +42,7 @@ param (
     [int]$Index,
     [switch]$Yes,
     [string[]]$KeepApps,
+    [string]$Preset = 'Default',
     [switch]$Help
 )
 
@@ -55,6 +56,19 @@ if (-not (Test-Path -Path $utilsModulePath -PathType Leaf)) {
     exit 1
 }
 Import-Module -Name $utilsModulePath -Force
+
+#---------[ Host Performance Optimisation ]---------#
+[System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
+$env:DISM_MAX_THREADS = Get-MaxParallelJobs
+Write-Output "[*] Host performance: PriorityClass=High, DISM threads=$($env:DISM_MAX_THREADS)"
+
+#---------[ Build Preset Resolution ]---------#
+if ($Preset) {
+    Write-Output "Using preset: $Preset"
+    $preset = Resolve-BuildPreset -PresetName $Preset
+} else {
+    $preset = Resolve-BuildPreset -PresetName 'Default'
+}
 
 if ($Help) {
     Write-Output @'
@@ -571,6 +585,10 @@ Remove-Item -Path "$tasksPath\Microsoft\Windows\Application Experience\ProgramDa
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Chkdsk\Proxy" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Error Reporting\QueueReporting" -Force -ErrorAction SilentlyContinue
 Write-Output "Task files have been deleted."
+
+#---------[ Extended Telemetry & Performance Tweaks (from preset) ]---------#
+Write-Output "Applying extended telemetry and performance tweaks..."
+Apply-ExtendedTweaks -Preset $preset
 
 #---------[ TaskCache ACL Takeover + GUID Deletion ]---------#
 Write-Host "Deleting scheduled task cache entries..."

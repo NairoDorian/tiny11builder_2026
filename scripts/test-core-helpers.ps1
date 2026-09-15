@@ -203,6 +203,26 @@ Check 'C: reports GB free' ($r.FreeGB -gt 0)
 Write-Host '== Test-ScratchDiskNtfs =='
 Check 'C: is NTFS' (Test-ScratchDiskNtfs -ScratchPath 'C:\')
 
+Write-Host '== Get-MaxParallelJobs =='
+$mpj = Get-MaxParallelJobs
+Check 'returns int' ($mpj -is [int])
+Check 'at least 1' ($mpj -ge 1)
+
+Write-Host '== Get-OptionalCapabilitiesToRemove =='
+$caps = Get-OptionalCapabilitiesToRemove -LanguageCode 'en-US' -Preset (Resolve-BuildPreset -PresetName 'Default')
+Check 'returns array' ($caps -is [array])
+Check 'contains IE' ($caps -contains 'Browser.InternetExplorer~~~~0.0.0.0')
+
+Write-Host '== Get-AdditionalWindowsPackagesToRemove =='
+$pkgs = Get-AdditionalWindowsPackagesToRemove -LanguageCode 'en-US' -Preset (Resolve-BuildPreset -PresetName 'Default')
+Check 'returns array' ($pkgs -is [array])
+
+Write-Host '== Remove-BloatwareFiles =='
+Check 'function exists' ($null -ne (Get-Command Remove-BloatwareFiles -ErrorAction SilentlyContinue))
+
+Write-Host '== Apply-ExtendedTweaks =='
+Check 'function exists' ($null -ne (Get-Command Apply-ExtendedTweaks -ErrorAction SilentlyContinue))
+
 Write-Host ''
 Write-Host "RESULT: $script:pass passed, $script:fail failed"
 if ($script:fail) { exit 1 }
