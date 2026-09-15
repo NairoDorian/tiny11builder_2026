@@ -1,0 +1,79 @@
+# Simple Appx Package Removal List
+# One package family name per line. Lines starting with # are comments.
+# Empty lines are ignored.
+# This is a machine-readable list used by the -Custom interactive selector.
+
+# Microsoft Edge & Browser
+Microsoft.MicrosoftEdge
+Microsoft.MicrosoftEdgePkgDice
+Microsoft.MicrosoftEdgePkgMetrics
+Microsoft.EdgePkgPolicy
+Microsoft.EdgeUpdate
+microsoft.windows.devhome
+Microsoft.Edge.GameAssist
+Microsoft.Windows.Ai.Copilot
+
+# Microsoft 365 / Office
+Microsoft.DesktopSchool.Office
+Microsoft.Office.DesktopSchool
+Microsoft.Office.OneDrive
+Microsoft.Office.UWP
+Microsoft.OutlookForWindows
+
+# Teams & Chat
+MicrosoftTeamsDesktop
+Microsoft.Windows.Teams
+MSTeams
+Microsoft.YourPhone
+
+# Bing & Search
+Microsoft.BingFinance
+Microsoft.BingNews
+Microsoft.BingSports
+Microsoft.BingWeather
+Microsoft.BingCalendar
+Microsoft.BingFood
+Microsoft.BingGames
+Microsoft.BingRetail
+
+# Gaming
+Microsoft.XboxGameOverlay
+Microsoft.XboxGamingOverlay
+Microsoft.GameBar
+Microsoft.SkypeApp
+Microsoft.ZuneMusic
+Microsoft.ZuneVideo
+Microsoft.Xbox.TCUI
+Microsoft.Xbox.App
+Microsoft.Xbox.WI
+Microsoft.GamingApp
+
+# Media & Camera
+Microsoft.Windows.Camera
+Microsoft.ScreenSketch
+Microsoft.Microsoft.ScreenSketch
+Microsoft.MixedReality.Portal
+Microsoft.Print3D
+Microsoft.Windows.Maps
+microsoft.windowscommunicationsapps
+
+# Finance & Productivity
+Microsoft.Wallet
+Microsoft.Whiteboard
+Microsoft.WindowsShop
+Microsoft.GetHelp
+Microsoft.5457dhmsd2.lmhk
+
+# System Apps (Core mode)
+MicrosoftWindows.Client.WebExperience
+Microsoft.Windows.Widgets
+MicrosoftWindows.Client.Core
+MicrosoftWindows.Client.CopilotUtils
+Microsoft.Delegate
+MicrosoftCorporationII.Win32DesktopPreview
+Microsoft.People
+
+# Social & News
+Microsoft.Getstarted
+Microsoft.MicrosoftSolitaireCollection
+Microsoft.Windows.Scratch
