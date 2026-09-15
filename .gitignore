@@ -1,0 +1,27 @@
+# Build artifacts
+*.iso
+*.wim
+*.esd
+*.log
+
+# Downloaded tools
+oscdimg.exe
+
+# PowerShell temporary
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Reference forks (cloned separately in repos/)
+repos/
+
+# Command Code system configuration
+.commandcode/
+
+# OS
+Thumbs.db
+Desktop.ini

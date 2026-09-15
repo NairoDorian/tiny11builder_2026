@@ -1,17 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Tiny11 Builder Ultimate Edition - Enhanced autounattend.xml -->
+<!-- Features: MS account bypass, local admin creation, AutoLogon, compact install, -->
+<!-- OOBE skip, timezone, computer name template. -->
+<!-- Tokens like #USERNAME#, #PASSWORD#, #TIMEZONE# can be patched dynamically. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
-    <settings pass="oobeSystem">
-        <component xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-            <OOBE>
-                <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
-            </OOBE>
-        </component>
-    </settings>
-    <component xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-        <ConfigureChatAutoInstall>false</ConfigureChatAutoInstall>
-    </component>
     <settings pass="windowsPE">
-        <component xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+        <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <DynamicUpdate>
                 <WillShowUI>OnError</WillShowUI>
             </DynamicUpdate>
@@ -28,10 +22,107 @@
                 </OSImage>
             </ImageInstall>
             <UserData>
+                <AcceptEula>true</AcceptEula>
                 <ProductKey>
-                    <Key/>
+                    <Key></Key>
+                    <WillShowUI>Never</WillShowUI>
                 </ProductKey>
             </UserData>
         </component>
+        <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <SetupUILanguage>
+                <UILanguage>en-US</UILanguage>
+            </SetupUILanguage>
+            <InputLocale>en-US</InputLocale>
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
     </settings>
+    <settings pass="offlineServicing">
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <UserAccounts>
+                <AdministratorPassword>
+                    <Value></Value>
+                </AdministratorPassword>
+                <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                        <Name>User</Name>
+                        <Password>
+                            <Value></Value>
+                        </Password>
+                        <DisplayName>user</DisplayName>
+                        <Description>user</Description>
+                        <Group>Administrators</Group>
+                    </LocalAccount>
+                </LocalAccounts>
+            </UserAccounts>
+        </component>
+    </settings>
+    <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <AutoLogon>
+                <Enabled>true</Enabled>
+                <Username>User</Username>
+                <Password>
+                    <Value></Value>
+                </Password>
+                <LogonCount>9999</LogonCount>
+            </AutoLogon>
+            <RegisteredOrganization>tiny11</RegisteredOrganization>
+            <RegisteredOwner>tiny11</RegisteredOwner>
+            <TimeZone>UTC</TimeZone>
+            <ComputerName>tiny11</ComputerName>
+            <OOBE>
+                <HideEULAPage>true</HideEULAPage>
+                <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                <NetworkLocation>Home</NetworkLocation>
+                <ProtectYourPC>3</ProtectYourPC>
+                <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                <HideLocalAccountScreen>true</HideLocalAccountScreen>
+                <SkipUserOOBE>true</SkipUserOOBE>
+                <SkipMachineOOBE>true</SkipMachineOOBE>
+            </OOBE>
+            <DisableAutoDaylightTime>false</DisableAutoDaylightTime>
+        </component>
+        <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
+    </settings>
+    <settings pass="specialize">
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <TimeZone>UTC</TimeZone>
+            <ComputerName>tiny11</ComputerName>
+            <Power>
+                <Shutdown>
+                    <Enable>false</Enable>
+                    <SuppressAfterHWOutstandingPeriod>PT1M</SuppressAfterHWOutstandingPeriod>
+                </Shutdown>
+                <Hibernate>
+                    <Enable>false</Enable>
+                    <Timeout>PT0S</Timeout>
+                </Hibernate>
+                <Idle>
+                    <Enable>false</Enable>
+                    <Timeout>PT0S</Timeout>
+                </Idle>
+                <Sleep>
+                    <Enable>false</Enable>
+                    <Hibernate>true</Hibernate>
+                    <Timeout>PT0S</Timeout>
+                </Sleep>
+            </Power>
+        </component>
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <TimeZone>UTC</TimeZone>
+            <ComputerName>tiny11</ComputerName>
+        </component>
+    </settings>
+    <c:offlineClient>
+        <settings>
+            <setting id="disableUEFIDiscovery" name="uefi" value="1" />
+        </settings>
+    </c:offlineClient>
 </unattend>

@@ -1,0 +1,90 @@
+# tiny11 Builder Ultimate Edition - Package Removal List
+# ======================================================
+# Combined from 14+ forks for maximum coverage.
+# Lines starting with # are comments and are skipped.
+# Each line is a package prefix matched against ProvisionedAppxPackage names.
+# The script removes any package whose name CONTAINS one of these prefixes.
+# Edit this file to customize what gets removed.
+
+# Intel / Hardware
+AppUp.IntelManagementandSecurityStatus
+DolbyLaboratories.DolbyAccess
+DolbyLaboratories.DolbyDigitalPlusDecoderOEM
+Microsoft.549981C3F5F10
+
+# Clipchamp
+Clipchamp.Clipchamp
+
+# Bing / Search
+Microsoft.BingNews
+Microsoft.BingSearch
+Microsoft.BingWeather
+
+# Copilot (all variants)
+Microsoft.Copilot
+Microsoft.Windows.Copilot
+
+# Edge / Web
+Microsoft.Edge.GameAssist
+Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App
+Microsoft.Windows.CrossDevice
+
+# Gaming
+Microsoft.GamingApp
+Microsoft.Xbox.TCUI
+Microsoft.XboxApp
+Microsoft.XboxGameOverlay
+Microsoft.XboxGamingOverlay
+Microsoft.XboxIdentityProvider
+Microsoft.XboxSpeechToTextOverlay
+
+# Microsoft Apps
+Microsoft.GetHelp
+Microsoft.Getstarted
+Microsoft.Microsoft3DViewer
+Microsoft.MicrosoftOfficeHub
+Microsoft.MicrosoftSolitaireCollection
+Microsoft.MicrosoftStickyNotes
+Microsoft.MixedReality.Portal
+Microsoft.MSPaint
+Microsoft.Office.OneNote
+Microsoft.OfficePushNotificationUtility
+Microsoft.OutlookForWindows
+Microsoft.Paint
+Microsoft.People
+Microsoft.PowerAutomateDesktop
+Microsoft.SkypeApp
+Microsoft.StartExperiencesApp
+Microsoft.Todos
+Microsoft.Wallet
+Microsoft.Windows.DevHome
+Microsoft.Windows.Teams
+Microsoft.WindowsAlarms
+Microsoft.WindowsCamera
+microsoft.windowscommunicationsapps
+Microsoft.WindowsFeedbackHub
+Microsoft.WindowsMaps
+Microsoft.WindowsNotepad
+Microsoft.WindowsSoundRecorder
+Microsoft.WindowsTerminal
+Microsoft.YourPhone
+Microsoft.ZuneMusic
+Microsoft.ZuneVideo
+MicrosoftCorporationII.MicrosoftFamily
+MicrosoftCorporationII.QuickAssist
+MicrosoftTeams
+MSTeams
+
+# Third-party (OEM / Retail)
+king.com.*
+SpotifyAB.SpotifyMusic
+Pandora.Pandora
+Twitter.Twitter
+Facebook.Facebook
+Instagram.Instagram
+Netflix.Netflix
+Disney.DisneyPlus
+Microsoft.YourPhone
+
+# OneDrive (provisioned package)
+OneDrive

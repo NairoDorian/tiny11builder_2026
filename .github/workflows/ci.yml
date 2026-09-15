@@ -1,0 +1,77 @@
+# Tiny11 Builder Ultimate Edition — CI
+# Validates PowerShell scripts for syntax errors on each push/PR.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  powershell-syntax:
+    name: PowerShell Syntax Check
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PowerShell
+        uses: actions/setup-pwsh@v2
+
+      - name: Install pwsh (fallback for Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install powershell-core -y || echo "Using built-in PowerShell 5.1"
+
+      - name: Check PowerShell scripts syntax
+        shell: pwsh
+        run: |
+          $scripts = Get-ChildItem -Path . -Include *.ps1,*.psm1 -Recurse -Exclude "repos\**"
+          foreach ($script in $scripts) {
+            Write-Host "Checking: $($script.FullName)"
+            $errors = $null
+            $null = [System.Management.Automation.PSParser]::Tokenize(
+              (Get-Content -Raw -Path $script.FullName), [ref]$errors
+            )
+            if ($errors) {
+              Write-Error "$($script.Name) has $($errors.Count) parse error(s):"
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+            Write-Host "  OK: $($script.Name)"
+          }
+
+  validate-xml:
+    name: Validate XML files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate autoundate XML
+        run: |
+          for f in autounattend.xml autoundate-arm64.xml; do
+            if [ -f "$f" ]; then
+              echo "Validating: $f"
+              xmllint --noout "$f" && echo "  OK: $f" || exit 1
+            fi
+          done
+
+  validate-json:
+    name: Validate JSON files
+    on:
+      push:
+        branches: [main, master]
+      pull_request:
+        branches: [main, master]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate package.json
+        run: |
+          if [ -f "package.json" ]; then
+            node --check package.json 2>/dev/null || python3 -c "import json; json.load(open('package.json'))"
+            echo "package.json OK"
+          fi
