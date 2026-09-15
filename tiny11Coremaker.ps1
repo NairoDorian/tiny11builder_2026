@@ -486,6 +486,11 @@ if ($dirsToCopy.Count -gt 0) {
     }
 }
 
+#---------[ Validate WinSxS Rebuild Integrity ]---------#
+Write-Output "Validating WinSxS rebuild integrity..."
+Assert-WinSxSRebuild -Path $winSxSEditPath
+Write-Output "WinSxS rebuild validated successfully."
+
 Write-Output "Deleting WinSxS. This may take a while..."
 Remove-Item -Path "$scratchDir\Windows\WinSxS" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 Rename-Item -Path $winSxSEditPath -NewName "WinSxS" -ErrorAction SilentlyContinue

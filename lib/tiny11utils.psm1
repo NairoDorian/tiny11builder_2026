@@ -31,11 +31,12 @@ function Build-ProcessArgumentString {
 
 function Assert-CommandExitCode {
     param(
-        [string]$Label,
-        [int[]]$AllowedExitCodes = @(0)
+        [string]$Label = 'Command',
+        [int[]]$AllowedExitCodes = @(0),
+        [int]$ExitCode = $LASTEXITCODE
     )
-    if ($AllowedExitCodes -notcontains $LASTEXITCODE) {
-        throw "$Label failed with exit code $LASTEXITCODE"
+    if ($AllowedExitCodes -notcontains $ExitCode) {
+        throw "$Label failed with exit code $ExitCode"
     }
 }
 
@@ -378,124 +379,77 @@ function Resolve-BuildProfile {
 #---------[ Build Preset Resolution ]---------#
 
 ## Preset definitions matching the namnguyen97x preset schema.
-## Each preset controls which optional debloat/privacy/performance tweaks are applied.
-$PresetDefaults = @{
-    Standard = @{
-        RemoveAppx              = $true
-        RemoveCapabilities      = $true
-        RemoveWindowsPackages   = $true
-        RemoveOneDrive          = $true
-        RemoveAI                = $true
-        RemoveEdge              = $true
-        RemoveStore             = $false
-        RemoveDefender          = $false
-        DisableTelemetry        = $true
-        DisableAds              = $true
-        DisableSponsoredApps    = $true
-        DisableThirdParty       = $true
-        BlockFirewallTelemetry  = $false
-        DisableZoneInformation  = $false
-        EnableUltimatePerf      = $false
-        EnableFastShutdown      = $false
-        DisableMouseAcceleration = $false
-        EnableUtcClock          = $false
-        TuneMouseLatency        = $true
-        TuneDefenderCpuLimit    = $true
-    }
-    Default = @{
-        RemoveAppx              = $true
-        RemoveCapabilities      = $true
-        RemoveWindowsPackages   = $true
-        RemoveOneDrive          = $true
-        RemoveAI                = $true
-        RemoveEdge              = $true
-        RemoveStore             = $false
-        RemoveDefender          = $false
-        DisableTelemetry        = $true
-        DisableAds              = $true
-        DisableSponsoredApps    = $true
-        DisableThirdParty       = $true
-        BlockFirewallTelemetry  = $false
-        DisableZoneInformation  = $false
-        EnableUltimatePerf      = $false
-        EnableFastShutdown      = $false
-        DisableMouseAcceleration = $false
-        EnableUtcClock          = $false
-        TuneMouseLatency        = $true
-        TuneDefenderCpuLimit    = $true
-    }
-    Gaming = @{
-        RemoveAppx              = $true
-        RemoveCapabilities      = $true
-        RemoveWindowsPackages   = $true
-        RemoveOneDrive          = $true
-        RemoveAI                = $true
-        RemoveEdge              = $true
-        RemoveStore             = $false
-        RemoveDefender          = $false
-        DisableTelemetry        = $true
-        DisableAds              = $true
-        DisableSponsoredApps    = $true
-        DisableThirdParty       = $true
-        BlockFirewallTelemetry  = $false
-        DisableZoneInformation  = $false
-        EnableUltimatePerf      = $true
-        EnableFastShutdown      = $false
-        DisableMouseAcceleration = $true
-        EnableUtcClock          = $true
-        TuneMouseLatency        = $true
-        TuneDefenderCpuLimit    = $true
-    }
-    MinimalVM = @{
-        RemoveAppx              = $true
-        RemoveCapabilities      = $true
-        RemoveWindowsPackages   = $true
-        RemoveOneDrive          = $true
-        RemoveAI                = $true
-        RemoveEdge              = $true
-        RemoveStore             = $true
-        RemoveDefender          = $true
-        DisableTelemetry        = $true
-        DisableAds              = $true
-        DisableSponsoredApps    = $true
-        DisableThirdParty       = $true
-        BlockFirewallTelemetry  = $false
-        DisableZoneInformation  = $false
-        EnableUltimatePerf      = $true
-        EnableFastShutdown      = $false
-        DisableMouseAcceleration = $false
-        EnableUtcClock          = $false
-        TuneMouseLatency        = $true
-        TuneDefenderCpuLimit    = $true
-    }
-    PrivacyPlus = @{
-        RemoveAppx              = $true
-        RemoveCapabilities      = $true
-        RemoveWindowsPackages   = $true
-        RemoveOneDrive          = $true
-        RemoveAI                = $true
-        RemoveEdge              = $true
-        RemoveStore             = $false
-        RemoveDefender          = $true
-        DisableTelemetry        = $true
-        DisableAds              = $true
-        DisableSponsoredApps    = $true
-        DisableThirdParty       = $true
-        BlockFirewallTelemetry  = $true
-        DisableZoneInformation  = $true
-        EnableUltimatePerf      = $false
-        EnableFastShutdown      = $true
-        DisableMouseAcceleration = $false
-        EnableUtcClock          = $false
-        TuneMouseLatency        = $true
-        TuneDefenderCpuLimit    = $true
-    }
-}
 
 function Resolve-BuildPreset {
     param([string]$PresetName)
+    # Preset-controlled feature toggles (from namnguyen97x/tiny-auto-builder).
+    # Each preset controls which optional debloat/privacy/performance tweaks are applied.
+    # Defined inside the function so AST-parsing test loaders can access it.
+    $PresetDefaults = @{
+        Standard = @{
+            RemoveAppx = $true; RemoveCapabilities = $true; RemoveWindowsPackages = $true
+            RemoveOneDrive = $true; RemoveAI = $true; RemoveEdge = $true
+            RemoveStore = $false; RemoveDefender = $false
+            DisableTelemetry = $true; DisableAds = $true; DisableSponsoredApps = $true
+            DisableThirdParty = $true; BlockFirewallTelemetry = $false
+            DisableZoneInformation = $false
+            EnableUltimatePerf = $false; EnableFastShutdown = $false
+            DisableMouseAcceleration = $false; EnableUtcClock = $false
+            TuneMouseLatency = $true; TuneDefenderCpuLimit = $true
+        }
+        Default = @{
+            RemoveAppx = $true; RemoveCapabilities = $true; RemoveWindowsPackages = $true
+            RemoveOneDrive = $true; RemoveAI = $true; RemoveEdge = $true
+            RemoveStore = $false; RemoveDefender = $false
+            DisableTelemetry = $true; DisableAds = $true; DisableSponsoredApps = $true
+            DisableThirdParty = $true; BlockFirewallTelemetry = $false
+            DisableZoneInformation = $false
+            EnableUltimatePerf = $false; EnableFastShutdown = $false
+            DisableMouseAcceleration = $false; EnableUtcClock = $false
+            TuneMouseLatency = $true; TuneDefenderCpuLimit = $true
+        }
+        Gaming = @{
+            RemoveAppx = $true; RemoveCapabilities = $true; RemoveWindowsPackages = $true
+            RemoveOneDrive = $true; RemoveAI = $true; RemoveEdge = $true
+            RemoveStore = $false; RemoveDefender = $false
+            DisableTelemetry = $true; DisableAds = $true; DisableSponsoredApps = $true
+            DisableThirdParty = $true; BlockFirewallTelemetry = $false
+            DisableZoneInformation = $false
+            EnableUltimatePerf = $true; EnableFastShutdown = $false
+            DisableMouseAcceleration = $true; EnableUtcClock = $true
+            TuneMouseLatency = $true; TuneDefenderCpuLimit = $true
+        }
+        'Minimal-VM' = @{
+            RemoveAppx = $true; RemoveCapabilities = $true; RemoveWindowsPackages = $true
+            RemoveOneDrive = $true; RemoveAI = $true; RemoveEdge = $true
+            RemoveStore = $true; RemoveDefender = $true
+            DisableTelemetry = $true; DisableAds = $true; DisableSponsoredApps = $true
+            DisableThirdParty = $true; BlockFirewallTelemetry = $false
+            DisableZoneInformation = $false
+            EnableUltimatePerf = $true; EnableFastShutdown = $false
+            DisableMouseAcceleration = $false; EnableUtcClock = $false
+            TuneMouseLatency = $true; TuneDefenderCpuLimit = $true
+        }
+        PrivacyPlus = @{
+            RemoveAppx = $true; RemoveCapabilities = $true; RemoveWindowsPackages = $true
+            RemoveOneDrive = $true; RemoveAI = $true; RemoveEdge = $true
+            RemoveStore = $false; RemoveDefender = $true
+            DisableTelemetry = $true; DisableAds = $true; DisableSponsoredApps = $true
+            DisableThirdParty = $true; BlockFirewallTelemetry = $true
+            DisableZoneInformation = $true
+            EnableUltimatePerf = $false; EnableFastShutdown = $true
+            DisableMouseAcceleration = $false; EnableUtcClock = $false
+            TuneMouseLatency = $true; TuneDefenderCpuLimit = $true
+        }
+    }
+
     if (-not $PresetName) { return $PresetDefaults.Standard }
     $preset = $PresetDefaults[$PresetName]
+    if (-not $preset) {
+        # Support case-insensitive and alias lookup (MinimalVM -> Minimal-VM)
+        $key = $PresetDefaults.Keys | Where-Object { $_ -ieq $PresetName -or ($_ -replace '-','') -eq ($PresetName -replace '-','') }
+        if ($key) { $preset = $PresetDefaults[$key] }
+    }
     if (-not $preset) { throw "Unknown preset '$PresetName'. Available: $($PresetDefaults.Keys -join ', ')" }
     return $preset
 }
@@ -536,7 +490,9 @@ function Get-RequiredScratchBytes {
     param([long]$ImageApparentBytes)
     $factor = 1.5
     $floor  = 20GB
-    return [long]([math].Max([double]$floor, [double]$ImageApparentBytes * $factor))
+    $calc = [double]$ImageApparentBytes * $factor
+    if ($calc -gt $floor) { $floor = $calc }
+    return [long]$floor
 }
 
 function Test-SufficientScratch {
@@ -545,8 +501,8 @@ function Test-SufficientScratch {
         Ok            = ($FreeBytes -ge $RequiredBytes)
         RequiredBytes = $RequiredBytes
         FreeBytes     = $FreeBytes
-        RequiredGB    = [math].Round($RequiredBytes / 1GB, 1)
-        FreeGB        = [math].Round($FreeBytes / 1GB, 1)
+        RequiredGB    = [int](($RequiredBytes / 1GB) * 10 + 0.5) / 10
+        FreeGB        = [int](($FreeBytes / 1GB) * 10 + 0.5) / 10
     }
 }
 
@@ -1009,6 +965,7 @@ function Test-ScratchDiskNtfs {
     if ($volume.FileSystem -ne 'NTFS') {
         throw "Scratch drive ${driveName}: must use NTFS (found $($volume.FileSystem)). ACL support is required for image processing."
     }
+    return $true
 }
 
 function Test-ScratchDiskSpace {
@@ -1028,12 +985,19 @@ function Test-ScratchDiskSpace {
 
     $driveName = (Get-Item $itemPath).PSDrive.Name
     $freeBytes = (Get-PSDrive -Name $driveName).Free
-    $requiredGb = [math].Round($RequiredBytes / 1GB)
-    $freeGb = [math].Round($freeBytes / 1GB, 1)
+    $requiredGb = [int](($RequiredBytes / 1GB) + 0.5)
+    $freeGb = [int](($freeBytes / 1GB) * 10 + 0.5) / 10
 
-    Write-Output "Scratch disk ${driveName}: free space ${freeGb} GB (required: ${requiredGb} GB)"
+    Write-Host "Scratch disk ${driveName}: free space ${freeGb} GB (required: ${requiredGb} GB)"
     if ($freeBytes -lt $RequiredBytes) {
         throw "Insufficient free space on ${driveName}:. Need at least ${requiredGb} GB, but only ${freeGb} GB is available."
+    }
+    return [pscustomobject]@{
+        Ok            = $true
+        FreeBytes     = $freeBytes
+        RequiredBytes = $RequiredBytes
+        FreeGB        = $freeGb
+        RequiredGB    = $requiredGb
     }
 }
 
@@ -1091,7 +1055,7 @@ function New-UnattendXml {
     $escUser = [System.Security.SecurityElement]::Escape($UserName)
     $escPass = [System.Security.SecurityElement]::Escape($Password)
     $escTz   = [System.Security.SecurityElement]::Escape($TimeZone)
-    $ns      = 'xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+    $ns = 'xmlns:wcm="http://schemas.microsoft.com/WIMA/2002/1/Components/Unattend" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
     $common  = "publicKeyToken=`"31bf3856ad364e35`" language=`"neutral`" versionScope=`"nonSxS`" $ns"
 
     if ($ZeroTouch) {
@@ -1135,6 +1099,7 @@ function New-UnattendXml {
             <UserData>
                 <AcceptEula>true</AcceptEula>
             </UserData>
+            $diskConfig
             <ImageInstall>
                 <OSImage>
                     <InstallFrom><MetaData wcm:action="add"><Key>/IMAGE/INDEX</Key><Value>1</Value></MetaData></InstallFrom>
@@ -1193,7 +1158,7 @@ function Format-BuildSummary {
         [int]$AppsTotal,
         [int]$Warnings
     )
-    $elapsedText = "{0}m {1}s" -f [int][math].Floor($Elapsed.TotalMinutes), $Elapsed.Seconds
+    $elapsedText = "{0}m {1}s" -f $Elapsed.Minutes, $Elapsed.Seconds
     $sizeText    = "{0} GB" -f (($IsoBytes / 1GB).ToString('N2', [System.Globalization.CultureInfo]::InvariantCulture))
     $warnText    = if ($Warnings -eq 0) { 'none' } else { "$Warnings non-fatal (see log)" }
     return @(
@@ -1238,6 +1203,128 @@ function Test-PrefixSelected {
         [string]$Prefix
     )
     return $SelectedPrefixes -contains $Prefix
+}
+
+#---------[ Optional Utilities & Packages ]---------#
+
+function Get-OptionalUtilities {
+    # Single source of truth for user-selectable standalone utility apps.
+    # Name = friendly token used by -Keep/-Remove and the picker.
+    # Prefixes = provisioned-Appx name prefixes. Default = 'Keep' or 'Remove'.
+    @(
+        [pscustomobject]@{ Name = 'Terminal';      Prefixes = @('Microsoft.WindowsTerminal');             Default = 'Keep'   }
+        [pscustomobject]@{ Name = 'Calculator';    Prefixes = @('Microsoft.WindowsCalculator');           Default = 'Keep'   }
+        [pscustomobject]@{ Name = 'Notepad';       Prefixes = @('Microsoft.WindowsNotepad');              Default = 'Keep'   }
+        [pscustomobject]@{ Name = 'Photos';        Prefixes = @('Microsoft.Windows.Photos');              Default = 'Keep'   }
+        [pscustomobject]@{ Name = 'Paint';         Prefixes = @('Microsoft.Paint', 'Microsoft.MSPaint');  Default = 'Remove' }
+        [pscustomobject]@{ Name = 'Camera';        Prefixes = @('Microsoft.WindowsCamera');               Default = 'Remove' }
+        [pscustomobject]@{ Name = 'SoundRecorder'; Prefixes = @('Microsoft.WindowsSoundRecorder');        Default = 'Remove' }
+        [pscustomobject]@{ Name = 'StickyNotes';   Prefixes = @('Microsoft.MicrosoftStickyNotes');        Default = 'Remove' }
+        [pscustomobject]@{ Name = 'Clock';         Prefixes = @('Microsoft.WindowsAlarms');               Default = 'Remove' }
+        [pscustomobject]@{ Name = 'MediaPlayer';   Prefixes = @('Microsoft.ZuneMusic');                   Default = 'Remove' }
+        [pscustomobject]@{ Name = 'MoviesTV';      Prefixes = @('Microsoft.ZuneVideo');                   Default = 'Remove' }
+        [pscustomobject]@{ Name = 'SnippingTool';  Prefixes = @('Microsoft.ScreenSketch');                Default = 'Remove' }
+    )
+}
+
+function Resolve-OptionalUtilities {
+    # Resolve the keep/remove state of every optional utility from its default,
+    # overridden by -Keep (force keep) and -Remove (force drop). Returns the list
+    # of Appx prefixes to remove and the names kept. Throws on an unknown name or
+    # a name present in both lists.
+    param(
+        [string[]]$Keep = @(),
+        [string[]]$Remove = @()
+    )
+    $table = Get-OptionalUtilities
+    $valid = $table.Name
+    foreach ($n in @($Keep + $Remove)) {
+        if ($valid -notcontains $n) {
+            throw "Unknown optional utility '$n'. Valid names: $($valid -join ', ')"
+        }
+    }
+    $conflict = $Keep | Where-Object { $Remove -contains $_ }
+    if ($conflict) {
+        throw "Optional utility '$($conflict -join ', ')' cannot be in both -Keep and -Remove."
+    }
+    $removePrefixes = New-Object System.Collections.Generic.List[string]
+    $keptNames      = New-Object System.Collections.Generic.List[string]
+    foreach ($u in $table) {
+        $state = $u.Default
+        if ($Keep   -contains $u.Name) { $state = 'Keep' }
+        if ($Remove -contains $u.Name) { $state = 'Remove' }
+        if ($state -eq 'Remove') { $u.Prefixes | ForEach-Object { $removePrefixes.Add($_) } }
+        else                     { $keptNames.Add($u.Name) }
+    }
+    [pscustomobject]@{
+        RemovePrefixes = $removePrefixes.ToArray()
+        KeptNames      = $keptNames.ToArray()
+    }
+}
+
+function Assert-WinSxSRebuild {
+    # Integrity gate for the rebuilt WinSxS (WinSxS_edit) BEFORE the old WinSxS is
+    # deleted. The servicing stack is mandatory for boot/sysprep; the metadata
+    # folders are always present in a healthy component store. If anything critical
+    # is missing the allowlist did not match this build - abort rather than ship a
+    # non-bootable image.
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path $Path)) {
+        throw "WinSxS rebuild path not found: $Path"
+    }
+    $hasServicingStack = @(Get-ChildItem -Path $Path -Directory -Filter '*servicingstack*' -ErrorAction SilentlyContinue).Count -gt 0
+    if (-not $hasServicingStack) {
+        throw "WinSxS rebuild incomplete: no '*servicingstack*' directory under $Path. Aborting to avoid a non-bootable image."
+    }
+    $requiredMeta = 'Catalogs', 'Manifests', 'Fusion', 'FileMaps'
+    $missing = $requiredMeta | Where-Object { -not (Test-Path (Join-Path $Path $_)) }
+    if ($missing) {
+        throw "WinSxS rebuild incomplete: missing $($missing -join ', ') under $Path. Aborting to avoid a non-bootable image."
+    }
+}
+
+function Get-AlwaysRemovePackages {
+    # Always-remove provisioned-Appx prefixes (bloat). The optional standalone
+    # utilities are handled separately via Get-OptionalUtilities / the picker /
+    # -Keep / -Remove, so none of them appear here.
+    @(
+        'Clipchamp.Clipchamp_',
+        'Microsoft.BingNews_',
+        'Microsoft.BingSearch_',
+        'Microsoft.BingWeather_',
+        'Microsoft.GamingApp_',
+        'Microsoft.GetHelp_',
+        'Microsoft.Getstarted_',
+        'Microsoft.MicrosoftOfficeHub_',
+        'Microsoft.MicrosoftSolitaireCollection_',
+        'Microsoft.People_',
+        'Microsoft.PowerAutomateDesktop_',
+        'Microsoft.Todos_',
+        'microsoft.windowscommunicationsapps_',
+        'Microsoft.WindowsFeedbackHub_',
+        'Microsoft.WindowsMaps_',
+        'Microsoft.Xbox.TCUI_',
+        'Microsoft.XboxGamingOverlay_',
+        'Microsoft.XboxGameOverlay_',
+        'Microsoft.XboxSpeechToTextOverlay_',
+        'Microsoft.XboxIdentityProvider_',
+        'Microsoft.YourPhone_',
+        'MicrosoftCorporationII.MicrosoftFamily_',
+        'MicrosoftCorporationII.QuickAssist_',
+        'MicrosoftTeams_',
+        'MSTeams_',
+        'Microsoft.Windows.Teams_',
+        'Microsoft.549981C3F5F10_',
+        'MicrosoftWindows.Client.WebExperience_',
+        'MicrosoftWindows.CrossDevice_',
+        'MicrosoftWindows.UndockedLowPowerScreen_',
+        'MicrosoftWindows.Client.OCD_*',
+        'Microsoft.YourPhonePhone_',
+        'Microsoft.DesktopEdgeInternal_',
+        'Microsoft.MicrosoftEdge.Internal_',
+        'microsoft.windowsstartmenuexperience_',
+        'Microsoft.XboxGamingAccess_'
+    )
 }
 
 Export-ModuleMember -Function Format-ProcessArgument
@@ -1286,3 +1373,7 @@ Export-ModuleMember -Function Test-IsoResult
 Export-ModuleMember -Function Test-RobocopySucceeded
 Export-ModuleMember -Function Invoke-Robocopy
 Export-ModuleMember -Function Test-PrefixSelected
+Export-ModuleMember -Function Get-OptionalUtilities
+Export-ModuleMember -Function Resolve-OptionalUtilities
+Export-ModuleMember -Function Assert-WinSxSRebuild
+Export-ModuleMember -Function Get-AlwaysRemovePackages

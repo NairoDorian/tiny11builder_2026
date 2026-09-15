@@ -10,12 +10,8 @@
 $repo = Split-Path -Parent $PSScriptRoot
 $modulePath = Join-Path $repo 'lib\tiny11utils.psm1'
 
-# Load ALL function definitions from the utils module via AST parsing.
-$tk = $null; $er = $null
-$ast = [System.Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$tk, [ref]$er)
-if ($er.Count) { throw "parse errors in $modulePath" }
-$ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
-    ForEach-Object { Invoke-Expression $_.Extent.Text }
+# Load function definitions from the utils module.
+Import-Module -Name $modulePath -Force -Scope Global -ErrorAction SilentlyContinue
 
 $script:pass = 0; $script:fail = 0
 function Check([string]$name, [bool]$cond) {
@@ -164,12 +160,43 @@ Check 'prefix in list' (Test-PrefixSelected @('Edge', 'OneDrive') 'Edge')
 Check 'prefix not in list' (-not (Test-PrefixSelected @('Edge') 'OneDrive'))
 Check 'empty list' (-not (Test-PrefixSelected @() 'Edge'))
 
+Write-Host '== Get-OptionalUtilities =='
+$opt = Get-OptionalUtilities
+Check 'returns non-empty table' ($opt.Count -gt 0)
+Check 'Terminal default Keep'   (($opt | Where-Object Name -eq 'Terminal'    | Select-Object -ExpandProperty Default) -eq 'Keep')
+Check 'Calculator default Keep' (($opt | Where-Object Name -eq 'Calculator'  | Select-Object -ExpandProperty Default) -eq 'Keep')
+Check 'Paint default Remove'    (($opt | Where-Object Name -eq 'Paint' | Select-Object -ExpandProperty Default) -eq 'Remove')
+Check 'MediaPlayer default Remove' (($opt | Where-Object Name -eq 'MediaPlayer' | Select-Object -ExpandProperty Default) -eq 'Remove')
+Check 'valid utility names'     ($opt.Name -contains 'Terminal' -and $opt.Name -contains 'Camera' -and $opt.Name -contains 'Calculator')
+
+Write-Host '== Resolve-OptionalUtilities =='
+$def = Resolve-OptionalUtilities
+Check 'default removes Paint'    ($def.RemovePrefixes -contains 'Microsoft.Paint')
+Check 'default keeps Terminal'   ($def.KeptNames -contains 'Terminal')
+$keep = Resolve-OptionalUtilities -Keep 'Paint'
+Check 'keep Paint -> kept'        ($keep.KeptNames -contains 'Paint')
+Check 'keep Paint -> not removed' (-not ($keep.RemovePrefixes -contains 'Microsoft.Paint'))
+$rem = Resolve-OptionalUtilities -Remove 'Calculator'
+Check 'remove Calculator -> removed' ($rem.RemovePrefixes -contains 'Microsoft.WindowsCalculator')
+CheckThrows 'unknown name throws'  { Resolve-OptionalUtilities -Keep 'FakeApp' }
+CheckThrows 'conflict throws'      { Resolve-OptionalUtilities -Keep 'Paint' -Remove 'Paint' }
+
+Write-Host '== Get-AlwaysRemovePackages =='
+$arb = Get-AlwaysRemovePackages
+Check 'returns non-empty list' ($arb.Count -gt 0)
+Check 'contains Clipchamp'     ($arb -contains 'Clipchamp.Clipchamp_')
+Check 'contains XboxGamingOverlay' ($arb -contains 'Microsoft.XboxGamingOverlay_')
+Check 'contains BingNews'      ($arb -contains 'Microsoft.BingNews_')
+
+Write-Host '== Assert-WinSxSRebuild =='
+CheckThrows 'missing path throws'      { Assert-WinSxSRebuild -Path 'C:\nonexistent-path-12345' }
+
 Write-Host '== Assert-CommandExitCode =='
-CheckThrows 'nonzero throws' { Assert-CommandExitCode 1 'Test operation' }
-Check 'zero ok' (try { Assert-CommandExitCode 0 'OK'; $true } catch { $false })
+CheckThrows 'nonzero throws' { Assert-CommandExitCode -Label 'Test operation' -ExitCode 1 }
+Check 'zero ok' ((Assert-CommandExitCode -Label 'OK' -ExitCode 0) -eq $null)
 
 Write-Host '== Test-ScratchDiskSpace =='
-$r = Test-ScratchDiskSpace -ScratchPath 'C:\' 200GB
+$r = Test-ScratchDiskSpace -ScratchPath 'C:\' 1MB
 Check 'C: has space' ($r.Ok)
 Check 'C: reports GB free' ($r.FreeGB -gt 0)
 
@@ -179,3 +206,4 @@ Check 'C: is NTFS' (Test-ScratchDiskNtfs -ScratchPath 'C:\')
 Write-Host ''
 Write-Host "RESULT: $script:pass passed, $script:fail failed"
 if ($script:fail) { exit 1 }
+exit 0

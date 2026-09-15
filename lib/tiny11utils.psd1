@@ -53,7 +53,11 @@
         'Test-IsoResult',
         'Test-RobocopySucceeded',
         'Invoke-Robocopy',
-        'Test-PrefixSelected'
+        'Test-PrefixSelected',
+        'Get-OptionalUtilities',
+        'Resolve-OptionalUtilities',
+        'Assert-WinSxSRebuild',
+        'Get-AlwaysRemovePackages'
     )
     PrivateData       = @{
         PSData = @{

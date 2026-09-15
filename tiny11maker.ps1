@@ -50,6 +50,15 @@
 .PARAMETER KeepApps
     Comma-separated list of package prefixes to ADD BACK into removal (overrides defaults).
 
+.PARAMETER Keep
+    Comma-separated names of optional utilities to FORCE KEEP (overrides preset defaults).
+    Valid names: Terminal, Calculator, Notepad, Photos, Paint, Camera, SoundRecorder,
+    StickyNotes, Clock, MediaPlayer, MoviesTV, SnippingTool.
+
+.PARAMETER Remove
+    Comma-separated names of optional utilities to FORCE REMOVE (overrides preset defaults).
+    Valid names: same as -Keep. Cannot specify the same name in both -Keep and -Remove.
+
 .PARAMETER User
     Local administrator account created by the unattended answer file (default: User).
 
@@ -68,6 +77,7 @@
     .\tiny11maker.ps1 -ISO D -Index 1 -Yes -ZeroTouch -User Bob -Password "P@ssw0rd" -TimeZone "China Standard Time"
     .\tiny11maker.ps1 -ISO E -SCRATCH D -LowRam
     .\tiny11maker.ps1 -ISO E -SCRATCH D -Preset Gaming
+    .\tiny11maker.ps1 -ISO E -SCRATCH D -Keep Terminal -Remove Paint,Camera
     .\tiny11maker.ps1 -ISO E -DryRun
 
 .NOTES
@@ -91,6 +101,8 @@ param (
     [switch]$LowRam,
     [string]$Preset,
     [string[]]$KeepApps,
+    [string[]]$Keep = @(),
+    [string[]]$Remove = @(),
     [string]$User = 'User',
     [string]$Password = '',
     [string]$TimeZone = 'UTC',
@@ -584,6 +596,34 @@ if ($removeOneDrive) {
         Write-Output "OneDriveSetup.exe not present, skipping."
     }
 }
+
+#---------[ Optional Utilities (granular control via -Keep/-Remove) ]---------#
+Write-Output "Resolving optional utilities..."
+$resolvedUtils = Resolve-OptionalUtilities -Keep $Keep -Remove $Remove
+if ($resolvedUtils.RemovePrefixes) {
+    $selectedPrefixes = $selectedPrefixes + $resolvedUtils.RemovePrefixes
+    Write-Output "Optional utilities to remove: $($resolvedUtils.RemovePrefixes -join ', ')"
+    Write-Output "Optional utilities kept: $($resolvedUtils.KeptNames -join ', ')"
+} else {
+    Write-Output "No optional utilities to remove."
+}
+
+#---------[ Optional Windows Capabilities ]---------#
+Write-Output "Removing optional Windows capabilities (capabilities)..."
+$capsToRemove = @(
+    'Browser.InternetExplorer~~~~0.0.0.0',
+    'Microsoft.Windows.PowerShell.2.0~~~~0.0.0.0',
+    'Microsoft.Windows.MSPaint~~~~0.0.0.0',
+    'Microsoft.Windows.SecHealthUI~~~~0.0.0.0'
+)
+foreach ($cap in $capsToRemove) {
+    try {
+        Remove-WindowsCapability -Path "$ScratchDisk\scratchdir" -Name $cap -ErrorAction SilentlyContinue
+    } catch {
+        Write-Warning "Failed to remove capability: $cap"
+    }
+}
+Write-Output "Capability removal complete."
 
 Write-Output "Removal complete!"
 Start-Sleep -Seconds 2
