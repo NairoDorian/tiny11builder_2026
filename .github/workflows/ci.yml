@@ -27,7 +27,7 @@ jobs:
     name: PowerShell 5.1 checks
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Parse + command resolution
         shell: powershell
@@ -68,11 +68,10 @@ jobs:
     name: XML / JSON well-formed
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Answer files
         run: |
-          sudo apt-get install -y -qq libxml2-utils > /dev/null
-          for f in autounattend.xml autounattend-arm64.xml; do xmllint --noout "$f" && echo "ok  $f"; done
+          for f in autounattend.xml autounattend-arm64.xml; do python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "$f" && echo "ok  $f"; done
       - name: Presets
         run: |
           for f in presets/*.json; do python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" && echo "ok  $f"; done
