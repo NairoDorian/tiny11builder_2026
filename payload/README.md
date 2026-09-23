@@ -1,8 +1,10 @@
 # Payload: run your own scripts after installation
 
-Build with `-Payload` and every `*.cmd` / `*.ps1` file in [`packages/`](packages)
-is copied into the image and executed **once, as SYSTEM, at the end of Windows
-Setup** (before the first sign-in).
+Build with `-Payload` (GUI: **Extras** tab, *Run my scripts from payload\packages*):
+every file in [`packages/`](packages) is copied into the image, and the top-level
+`*.cmd` / `*.ps1` files are executed **once, as SYSTEM, at the end of Windows Setup**
+(before the first sign-in), in alphabetical order. The Extras tab lists the scripts it
+found and has a button that opens this folder.
 
 ## How it works
 

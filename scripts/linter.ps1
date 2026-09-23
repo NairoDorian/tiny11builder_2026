@@ -39,8 +39,18 @@ $files = Get-ChildItem -Path $repo -Recurse -File -Include *.ps1, *.psm1 |
 $any = $false
 foreach ($file in $files) {
     $rel = $file.FullName.Substring($repo.Length + 1)
-    $findings = @(Invoke-ScriptAnalyzer -Path $file.FullName -Severity Warning, Error |
-        Where-Object { $ignore -notcontains $_.RuleName })
+    # PSScriptAnalyzer occasionally throws an internal NullReferenceException
+    # (a race between rules); retry instead of failing the run on it.
+    $findings = $null
+    for ($attempt = 1; $attempt -le 3 -and $null -eq $findings; $attempt++) {
+        try {
+            $findings = @(Invoke-ScriptAnalyzer -Path $file.FullName -Severity Warning, Error -ErrorAction Stop |
+                Where-Object { $ignore -notcontains $_.RuleName })
+        } catch {
+            if ($attempt -eq 3) { throw }
+            Write-Host "     analyzer error on $rel (attempt $attempt), retrying: $($_.Exception.Message)"
+        }
+    }
     if ($findings.Count) {
         $any = $true
         Write-Host "===== $rel : $($findings.Count) finding(s) =====" -ForegroundColor Yellow

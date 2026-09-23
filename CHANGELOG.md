@@ -1,11 +1,43 @@
 # Changelog
 
-All notable changes to the Tiny11 Builder Ultimate Edition are documented here.
-This project is built from **NairoDorian/tiny11builder_2026** as the base,
-incorporating improvements from 14+ community forks.
+All notable changes to Tiny11 Builder - Ultimate Edition. The project is a fork of
+[ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder), whose full history is
+kept on `main`, and it incorporates improvements from 15 community forks. Versions are
+`year.month[.n]`. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+Read the older entries as a record of their time. Several features listed in the
+"Initial Build" entry were later found not to work, and were fixed in Round 4 (2026.09).
+
+---
+
+## [2026.09.2] - 2026-09-23 - Round 6: documentation and screenshots
+
+### Changed
+- **README rewritten** for the current project:
+  - highlights, quick start and requirements;
+  - a GUI guide with a screenshot of every tab and of a finished build;
+  - Standard vs Core, presets;
+  - the complete command-line reference, grouped by purpose;
+  - the build pipeline, after-install notes, customising, troubleshooting;
+  - project layout, development workflow, history and credits.
+- **CONTRIBUTING rewritten**: ground rules (host safety, PS 5.1 pitfalls), where each kind of
+  change goes, the checks to run, how to test the GUI without a build, and history etiquette.
+- All GUI screenshots regenerated (`docs/gui-*.png`), plus the new `gui-build-done.png`.
+
+### Added
+- `scripts/update-screenshots.ps1` re-renders every screenshot reproducibly.
+  - It uses window-only rendering (`DrawToBitmap`), never a screen grab, so nothing else on the
+    desktop can end up in an image.
+  - The log panel, which `DrawToBitmap` cannot paint, is drawn onto a temporary overlay.
+  - The finished-build image comes from the real window, run with the fake builder.
+- The fake-builder fixture can print a realistic log (`T11_FAKE_DOCS=1`).
+
+### Fixed
+- `Start-GuiBuild` now resolves relative builder and log paths. The launcher runs in the
+  builder's folder, so a relative `-BuilderOverride` failed before.
+- The GUI now reports "the builder finished but no ISO was found" instead of "dry run
+  finished" when a real build exits 0 without an ISO.
+- The build log keeps its dark background (a read-only RichTextBox resets `BackColor`).
 
 ---
 

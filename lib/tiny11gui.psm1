@@ -455,6 +455,9 @@ function Start-GuiBuild {
         [Parameter(Mandatory = $true)][string]$LogPath,
         [string]$WorkDir = (Split-Path -Parent $LogPath)
     )
+    $ScriptPath = (Resolve-Path -LiteralPath $ScriptPath).Path      # the launcher runs in another folder
+    $LogPath = [System.IO.Path]::GetFullPath($LogPath)
+    $WorkDir = [System.IO.Path]::GetFullPath($WorkDir)
     New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
     $argsFile = Join-Path $WorkDir "gui-args-$PID.xml"
     $launcher = Join-Path $WorkDir 'gui-launcher.ps1'
@@ -895,6 +898,8 @@ function Show-Tiny11BuilderForm {
     $lblStage = New-UiControl -Type Label -Parent $tabBuild -X 14 -Y 262 -W 600 -Text 'Ready.' -Props @{ Font = $bold }
     $lblElapsed = New-UiControl -Type Label -Parent $tabBuild -X 620 -Y 262 -W 260 -Props @{ TextAlign = 'TopRight'; ForeColor = $muted }
     $rtbLog = New-UiControl -Type RichTextBox -Parent $tabBuild -X 14 -Y 284 -W 866 -H 200 -Props @{ ReadOnly = $true; Font = $mono; BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28); ForeColor = [System.Drawing.Color]::Gainsboro; WordWrap = $false; DetectUrls = $false }
+    $rtbLog.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)   # after ReadOnly, which resets it
+    $rtbLog.ForeColor = [System.Drawing.Color]::Gainsboro
     $btnCancel = New-UiControl -Type Button -Parent $tabBuild -X 14 -Y 490 -W 130 -H 26 -Text 'Cancel build' -Props @{ Enabled = $false }
     $btnOpenLogs = New-UiControl -Type Button -Parent $tabBuild -X 150 -Y 490 -W 130 -H 26 -Text 'Open logs folder'
     $btnOpenOutput = New-UiControl -Type Button -Parent $tabBuild -X 286 -Y 490 -W 150 -H 26 -Text 'Show the ISO' -Props @{ Enabled = $false }
@@ -1206,6 +1211,9 @@ function Show-Tiny11BuilderForm {
             if (-not $ui.Quiet -and (Invoke-PopupYesOrNo -Title 'Tiny11 ISO ready' -Message "Created:`n$iso`n`nShow it in Explorer?")) {
                 Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$iso`""
             }
+        } elseif ($code -eq 0 -and -not $ui.CurrentDryRun) {
+            $ui.Controls.Stage.Text = "The builder finished but no ISO was found at $iso - see the log."
+            $ui.Controls.Stage.ForeColor = $danger
         } elseif ($code -eq 0) {
             $ui.Controls.Progress.Value = 100
             $ui.Controls.Stage.Text = 'Dry run finished - see the plan in the log.'
@@ -1214,7 +1222,16 @@ function Show-Tiny11BuilderForm {
             $ui.Controls.Stage.Text = "Build failed (exit code $code) - see the log."
             $ui.Controls.Stage.ForeColor = $danger
         }
-        if ($ui.AutoRun) { $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null }
+        if ($ui.AutoRun) {
+            if ($ui.PreviewPath) {
+                $ui.Form.ActiveControl = $ui.Controls.Log
+                $ui.Controls.Log.SelectionStart = $ui.Controls.Log.TextLength
+                $ui.Controls.Log.ScrollToCaret()
+                [System.Windows.Forms.Application]::DoEvents()
+                & $ui.Capture
+            }
+            $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null
+        }
     }
 
     $startBuild = {
@@ -1638,15 +1655,59 @@ function Show-Tiny11BuilderForm {
     & $applyState
     $ui.Loading = $false
 
-    if ($PreviewPath) {
+    $ui.PreviewPath = $PreviewPath
+    $ui.Capture = {
+        # Renders ONLY this window (DrawToBitmap) - never a screen grab, so
+        # nothing else on the desktop can end up in a screenshot. DrawToBitmap
+        # cannot paint RichTextBox content, so the log is drawn onto a
+        # temporary overlay first.
+        $f = $ui.Form
+        $overlay = $null
+        $rtb = $ui.Controls.Log
+        if ($rtb.TextLength -gt 0 -and $ui.Tabs.SelectedTab -eq $tabBuild) {
+            $img = New-Object System.Drawing.Bitmap($rtb.ClientSize.Width, $rtb.ClientSize.Height)
+            $g = [System.Drawing.Graphics]::FromImage($img)
+            $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+            $g.Clear($rtb.BackColor)
+            $lineHeight = [int][Math]::Ceiling($rtb.Font.GetHeight($g)) + 1
+            $visible = [Math]::Max(1, [int][Math]::Floor(($img.Height - 4) / $lineHeight))
+            $lines = @($rtb.Lines | Where-Object { $_ -ne '' })
+            $lines = @($lines | Select-Object -Last $visible)
+            $y = 2
+            foreach ($line in $lines) {
+                $color = switch (Get-GuiLineKind $line) {
+                    'error'   { [System.Drawing.Color]::FromArgb(255, 110, 110) }
+                    'warning' { [System.Drawing.Color]::FromArgb(255, 200, 90) }
+                    'section' { [System.Drawing.Color]::FromArgb(110, 190, 255) }
+                    'success' { [System.Drawing.Color]::FromArgb(120, 220, 130) }
+                    default   { [System.Drawing.Color]::Gainsboro }
+                }
+                $brush = New-Object System.Drawing.SolidBrush($color)
+                $g.DrawString($line, $rtb.Font, $brush, 4, $y)
+                $brush.Dispose()
+                $y += $lineHeight
+            }
+            $g.Dispose()
+            $overlay = New-Object System.Windows.Forms.PictureBox
+            $overlay.Bounds = $rtb.Bounds
+            $overlay.Image = $img
+            $rtb.Parent.Controls.Add($overlay)
+            $overlay.BringToFront()
+        }
+        $bmp = New-Object System.Drawing.Bitmap($f.Width, $f.Height)
+        $f.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $f.Width, $f.Height)))
+        $bmp.Save($ui.PreviewPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+        if ($overlay) { $rtb.Parent.Controls.Remove($overlay); $overlay.Dispose() }
+    }
+    # -PreviewPath alone: render the chosen tab. With -AutoRun, the window is
+    # captured after the build finished instead (log + progress visible).
+    if ($PreviewPath -and -not $AutoRun) {
         $tabs.SelectedIndex = [Math]::Min([Math]::Max(0, $PreviewTab), $tabs.TabCount - 1)
         if ($tabs.SelectedTab -eq $tabBuild) { $null = & $refreshBuildTab }
         $form.Show()
         [System.Windows.Forms.Application]::DoEvents()
-        $bmp = New-Object System.Drawing.Bitmap($form.Width, $form.Height)
-        $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)))
-        $bmp.Save($PreviewPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bmp.Dispose()
+        & $ui.Capture
         $form.Close()
         return $null
     }

@@ -5,7 +5,7 @@ You can either:
 
 - install one yourself with `winget install Mozilla.Firefox` (App Installer /
   winget is always kept), or
-- let the builder do it: `-Browser Firefox` or `-Browser Chrome` (also in the GUI).
+- let the builder do it: `-Browser Firefox` or `-Browser Chrome` (GUI: **Extras** tab, *Browser*).
 
 With `-Browser`, the matching script in this folder is copied into the image
 (`%WINDIR%\Setup\Tiny11\firstlogon\`) and run once at the first sign-in by
