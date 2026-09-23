@@ -1,86 +1,50 @@
-# Contributing to Tiny11 Builder — Ultimate Edition
+# Contributing
 
-Thank you for your interest in contributing! This fork was built by learning from
-14+ reference projects (see [`README.md`](README.md)). Contributions that align
-with the project's goals are welcome.
+Thanks for helping. This project builds on the upstream tiny11builder and 15
+community forks (see the README credits); improvements of any size are welcome.
 
-## Development Setup
+## Ground rules
 
-1. **Windows 10/11** with administrator privileges
-2. **PowerShell 5.1+** (or PowerShell 7 on Windows)
-3. Windows ADK + WinPE Add-on (for `oscdimg.exe`)
-4. Clone the repository:
-   ```bat
-   git clone https://github.com/NairoDorian/tiny11builder_2026
-   cd tiny11builder_2026
-   ```
+1. **Never touch the host.** Everything the builders change lives in the
+   mounted image or its offline hives (`HKLM\zSOFTWARE`, `zSYSTEM`, `zNTUSER`,
+   `zDEFAULT`, `zCOMPONENTS`). `Set-RegistryValue` / `Remove-RegistryValue`
+   enforce this; do not bypass them with raw `reg.exe` or `Set-ItemProperty`.
+2. **Offline hives have no `CurrentControlSet`.** Use `ControlSet001`.
+3. **Windows PowerShell 5.1** is the runtime. Save `.ps1/.psm1/.psd1` files as
+   UTF-8 *with BOM* and CRLF (`.gitattributes` handles line endings).
+4. **No `& tool 2>$null`** in scripts running with `$ErrorActionPreference='Stop'`:
+   PS 5.1 turns the stderr line into a terminating error. Use `Invoke-Native`.
+5. Validate options *before* the long work starts; keep individual tweak or app
+   failures non-fatal (count a warning), and keep mount/commit/export failures fatal.
 
-## Reference Forks
+## Where things go
 
-All reference forks are kept in the `repos/` directory for study. This directory
-is gitignored — it's for local reference only. When studying a new fork:
+| Change | File |
+|---|---|
+| Registry tweak | [`data/tweaks.psd1`](data/tweaks.psd1): add a line to a group, or a new group with a `When` flag |
+| New preset flag | `Get-PresetFlagNames` + `Resolve-BuildPreset` in `lib/tiny11utils.psm1`, and all four `presets/*.json` |
+| App removed by default | [`removePackage.txt`](removePackage.txt) (prefix; no optional utilities, no protected packages) |
+| Optional app (`-Keep`/`-Remove`) | `Get-OptionalUtilities` |
+| Answer-file behaviour | `New-UnattendXml` (the tests hold an allow-list of valid settings per pass) |
+| Build step shared by both builders | a stage function in `lib/tiny11utils.psm1` |
+| GUI | `lib/tiny11gui.psm1` (`Show-Tiny11BuilderForm -PreviewPath x.png` renders it headless) |
 
-1. Clone it into `repos/` using a descriptive name (e.g., `repos/author_forkname`)
-2. Review its README, scripts, and configuration files
-3. Extract applicable improvements into the ultimate fork
-
-## Code Style
-
-- Use **`Write-Host`** for console output (this is an interactive builder)
-- Use **`Write-Output`** for data that might be piped
-- Use **`Write-Warning`** for non-fatal issues that should be counted
-- Use **modular functions**: prefer `Set-RegistryValue`, `Remove-RegistryValue`,
-  `Invoke-DismChecked` from `lib/tiny11utils.psm1` over raw `reg.exe` or `dism`
-- Use **`$Script:` scope** for variables that need to persist across trap blocks
-- Use **`trap` blocks** for emergency cleanup
-- Use **`try/catch`** around DISM and registry operations
-
-## Validation
-
-Before submitting changes, run all validation scripts:
+## Before you open a pull request
 
 ```powershell
-# 1. Syntax check
-.\scripts\parse-check.ps1
-
-# 2. Lint (requires PSScriptAnalyzer)
-.\scripts\linter.ps1
-
-# 3. Unit tests
-.\scripts\test-core-helpers.ps1
+.\scripts\update-generated.ps1   # regenerate docs/, reference answer files, module manifest
+.\scripts\parse-check.ps1        # everything parses, every command resolves
+.\scripts\test-core-helpers.ps1  # unit tests (no admin, no ISO)
+.\scripts\linter.ps1             # PSScriptAnalyzer
 ```
 
-All three must pass. The CI workflow runs steps 1 and 2 automatically on push/PR.
+CI runs the same four on Windows PowerShell 5.1 and fails when a generated file
+is stale. If you changed build behaviour, also run a real build in a VM
+(`-DryRun` first, then a full build) and mention the Windows build you tested in
+the pull request. The `tiny11.iso.json` manifest shows exactly what was applied.
 
-## What to Contribute
+## Studying forks
 
-- **New tweak entries**: Add registry keys to `removePackage.txt` or the tweak
-  sections in `tiny11maker.ps1` / `tiny11Coremaker.ps1`
-- **New presets**: Add a JSON file to `presets/` and update `Resolve-BuildPreset`
-  in `lib/tiny11utils.psm1`
-- **Package list updates**: Add/remove entries from `removePackage.txt` when
-  new Windows 11 builds add/remove Appx packages
-- **TaskCache GUIDs**: Update the version-gated GUID lists in
-  `Get-TaskCacheGuidsForBuild` when Microsoft changes scheduled task GUIDs
-- **Bug fixes**: The NairoDorian base had several bugs (see CHANGELOG.md) —
-  additional fixes are always welcome
-
-## Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/name`
-3. Make your changes
-4. Run all validation scripts
-5. Commit with a clear message
-6. Push and open a PR
-
-## Attribution
-
-When porting code from a reference fork, please note the source in:
-- The commit message
-- Code comments (e.g., `# from vinisebold/tiny11builder-revamped`)
-- `CHANGELOG.md`
-
-## Questions?
-
-Open an issue or check the [README](README.md) for detailed documentation.
+Reference forks live in `repos/` (git-ignored). Clone new ones as
+`repos/<owner>_<name>`, and credit the source of any idea you port in the
+commit message and in `CHANGELOG.md`.

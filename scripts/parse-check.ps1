@@ -1,68 +1,59 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    Layer 2 parse-check: verifies PowerShell tokenizes cleanly and that
-    all module function calls resolve to defined functions.
+    Parses every PowerShell file and checks that each command the scripts call
+    actually exists (module function, script-local function or cmdlet).
 
 .DESCRIPTION
-    1. Tokenizes each .ps1/.psm1 file to catch parse errors (also enforced by CI).
-    2. Checks that functions called in tiny11maker.ps1 / tiny11Coremaker.ps1
-       are exported by lib/tiny11utils.psm1 or are PowerShell built-ins.
-
-    Run from the project root. Exits 1 on any issue.
+    Catches the class of bug where a helper is renamed or deleted but a caller
+    is not updated - which PowerShell only reports at run time, possibly 40
+    minutes into a build. Exits 1 on any parse error or unresolved command.
 #>
 
+$ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$scripts = @(
-    'tiny11maker.ps1',
-    'tiny11Coremaker.ps1',
-    'tiny11gui.ps1',
-    'tiny11LegacyProfile.ps1',
-    'lib\tiny11utils.psm1',
-    'lib\tiny11gui.psm1'
-)
+Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+Import-Module -Name (Join-Path $repo 'lib\tiny11gui.psm1') -Force -DisableNameChecking
+Import-Module Dism -ErrorAction SilentlyContinue       # Mount-WindowsImage & co.
+Import-Module Storage -ErrorAction SilentlyContinue    # Mount-DiskImage, Get-Volume
 
-#---------[ 1. Parse Check ]---------#
-$parseOk = $true
-foreach ($name in $scripts) {
-    $path = Join-Path $repo $name
-    if (-not (Test-Path $path)) { continue }
-    $errors = $null
-    $null = [System.Management.Automation.Language.Parser]::ParseInput(
-        (Get-Content -Raw -Path $path), [ref]$null, [ref]$errors
-    )
-    if ($errors) {
-        Write-Host "FAIL: $name has $($errors.Count) parse error(s):"
-        $parseOk = $false
-        $errors | ForEach-Object {
-            Write-Host "  $($_.Message) (line $($_.Extent.LineNumber))"
-        }
+# Provided by optional modules the linter installs on demand.
+$external = @('Install-Module', 'Install-PackageProvider', 'Invoke-ScriptAnalyzer')
+
+$files = Get-ChildItem -Path $repo -Recurse -File -Include *.ps1, *.psm1 |
+    Where-Object { $_.FullName -notmatch '\\(repos|logs|\.git)\\' }
+
+$failed = $false
+foreach ($file in $files) {
+    $rel = $file.FullName.Substring($repo.Length + 1)
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) {
+        $failed = $true
+        Write-Host "FAIL $rel : $($errors.Count) parse error(s)" -ForegroundColor Red
+        $errors | ForEach-Object { Write-Host "     line $($_.Extent.StartLineNumber): $($_.Message)" }
+        continue
+    }
+
+    # Functions defined anywhere in this file (incl. nested) count as resolvable.
+    $local = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+    $calls = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+    $missing = @()
+    foreach ($call in $calls) {
+        $name = $call.GetCommandName()
+        if (-not $name -or $name -match '[\\/.]' -or $name -match '^\$') { continue }   # paths / exe / dynamic
+        if ($local -contains $name -or $external -contains $name) { continue }
+        if (Get-Command -Name $name -ErrorAction SilentlyContinue) { continue }
+        $missing += "$name (line $($call.Extent.StartLineNumber))"
+    }
+    if ($missing.Count) {
+        $failed = $true
+        Write-Host "FAIL $rel : unresolved command(s): $($missing -join ', ')" -ForegroundColor Red
     } else {
-        Write-Host "OK: $name (parse)"
+        Write-Host "ok   $rel"
     }
 }
 
-#---------[ 2. Function Resolution ]---------#
-# Get all exported function names from the utils module
-$utilsPath = Join-Path $repo 'lib\tiny11utils.psm1'
-$definedFuncs = @{}
-if (Test-Path $utilsPath) {
-    $content = Get-Content -Raw -Path $utilsPath
-    $funcs = [regex]::Matches($content, 'function\s+(\S+)\s*\{') |
-        ForEach-Object { $_.Groups[1].Value }
-    $funcs | ForEach-Object { $definedFuncs[$_] = $true }
-    # Also get Export-ModuleMember function names
-    $exports = [regex]::Matches($content, "Export-ModuleMember -Function (\S+)") |
-        ForEach-Object { $_.Groups[1].Value }
-    $exports | ForEach-Object { $definedFuncs[$_] = $true }
-}
-
-Write-Host "`nModule functions defined: $($definedFuncs.Keys.Count)"
-Write-Host "Exported: $(($definedFuncs.Keys -join ', '))"
-
-if ($parseOk -eq $false) {
-    Write-Host "`nParse check FAILED."
-    exit 1
-}
-Write-Host "`nAll checks passed."
+if ($failed) { exit 1 }
+Write-Host "`nAll files parse and every command resolves." -ForegroundColor Green
 exit 0

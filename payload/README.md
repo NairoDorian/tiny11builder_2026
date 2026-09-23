@@ -1,34 +1,51 @@
-# Payload Installation Directories
+# Payload: run your own scripts after installation
 
-Files placed in these subdirectories are copied into the mounted image's
-`$$\\setup\\scripts` folder by `SetupComplete.cmd` during first login.
+Build with `-Payload` and every `*.cmd` / `*.ps1` file in [`packages/`](packages)
+is copied into the image and executed **once, as SYSTEM, at the end of Windows
+Setup** (before the first sign-in).
 
-## Structure
+## How it works
 
-```text
-payload/
-├── SetupComplete.cmd              # Entry point (runs on first login)
-├── README.md                       # This file
-├── packages/                       # Place .cmd/.ps1 installers here
-│   └── README.md
-├── VCRedist/                       # Visual C++ Redistributables
-├── DotNet/                         # .NET Desktop Runtimes
-├── DirectX/                        # DirectX 9.0c redistributable
-├── Fonts/                          # Custom fonts (.ttf/.ttc/.otf)
-├── Wallpapers/                     # Custom wallpapers
-├── PowerShell/                     # Latest PowerShell MSI
-└── Store/                          # Microsoft Store for LTSC
-    └── LTSC-Add-MicrosoftStore/
+The builder writes `%WINDIR%\Setup\Scripts\SetupComplete.cmd` into the image
+(an existing OEM `SetupComplete.cmd` is preserved and chained first). It runs:
+
+1. the first-boot commands of the tweak catalog (for example the Ultimate
+   Performance power plan of the Gaming preset, or disabling `wuauserv` on Core);
+2. `%WINDIR%\Setup\Tiny11\packages\*.cmd`, then `*.ps1` (alphabetical order);
+
+and logs everything to `%WINDIR%\Setup\Tiny11\setupcomplete.log`.
+
+A second hook, `%WINDIR%\Setup\Tiny11\FirstLogon.cmd`, runs at the first sign-in
+(in the user's session, after waiting for the network). It installs the browser
+chosen with `-Browser` and then deletes the cached answer files, which contain
+the account password. Its log is `%WINDIR%\Setup\Tiny11\firstlogon.log`.
+
+## Writing a package
+
+- It runs as **SYSTEM** with no user logged on and possibly **no network**:
+  prefer offline installers. Every file in `packages/` is copied into the image
+  (only the top-level `.cmd`/`.ps1` files are *executed*), so a script can call
+  an installer placed next to it: `"%~dp0vc_redist.x64.exe" /install /quiet /norestart`
+  or `& "$PSScriptRoot\setup.msi"`.
+- Be silent: `/quiet`, `/qn`, `/S`... Nothing can prompt.
+- Return quickly; Windows waits for SetupComplete before showing the desktop.
+- Exit codes are logged but never stop the other packages.
+
+Examples:
+
+```bat
+:: packages\10-power.cmd - balanced plan, no hibernation file
+powercfg.exe /setactive 381b4222-f694-41f0-9685-ff5bb260df2e
+powercfg.exe /hibernate off
 ```
 
-## Usage
+```powershell
+# packages\20-explorer.ps1 - show file extensions for every new user
+reg.exe load HKU\T11Default C:\Users\Default\NTUSER.DAT
+reg.exe add "HKU\T11Default\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f
+reg.exe unload HKU\T11Default
+```
 
-1. Download the desired installer files into the appropriate subdirectory.
-2. The build script copies these into the image via `SetupComplete.cmd`.
-3. At first login, `SetupComplete.cmd` runs each installer silently.
-
-VC++ 2005 redistributables are intentionally skipped because their legacy
-installers can break unattended setup on current Windows builds (per MOPELotus fork).
-
-Office is intentionally not bundled. Install it later with Office Tool Plus
-or another preferred installer after Windows reaches the desktop.
+Office is intentionally not bundled; install it after setup with the Office
+Deployment Tool or Office Tool Plus. VC++ 2005 redistributables are known to
+break unattended setup on current builds (noted by the MOPELotus fork).

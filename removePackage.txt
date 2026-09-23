@@ -1,90 +1,90 @@
-# tiny11 Builder Ultimate Edition - Package Removal List
-# ======================================================
-# Combined from 14+ forks for maximum coverage.
-# Lines starting with # are comments and are skipped.
-# Each line is a package prefix matched against ProvisionedAppxPackage names.
-# The script removes any package whose name CONTAINS one of these prefixes.
-# Edit this file to customize what gets removed.
+# Tiny11 Builder - Ultimate Edition : provisioned-app removal list
+# ================================================================
+# One package-name PREFIX per line, matched against the provisioned Appx
+# packages found in the image (e.g. "Microsoft.BingNews" matches
+# "Microsoft.BingNews_4.55.62231.0_neutral_~_8wekyb3d8bbwe"). Wildcards are
+# allowed (king.com.*). '#' starts a comment. Unknown names are harmless.
+#
+# NOT in this file on purpose:
+#   * Optional utilities (Terminal, Calculator, Notepad, Photos, Paint, Camera,
+#     Sound Recorder, Sticky Notes, Clock, Media Player, Movies & TV, Snipping
+#     Tool) -> controlled with -Keep / -Remove (see Get-OptionalUtilities).
+#   * Store, App Installer (winget), codecs and UI frameworks -> protected, see
+#     Get-ProtectedAppxPrefixes. The Store only goes with a preset that sets
+#     removeStore (Minimal-VM).
+# Edit freely, or pass -PackageList <file> to use your own list.
 
-# Intel / Hardware
-AppUp.IntelManagementandSecurityStatus
-DolbyLaboratories.DolbyAccess
-DolbyLaboratories.DolbyDigitalPlusDecoderOEM
-Microsoft.549981C3F5F10
-
-# Clipchamp
+# --- Microsoft consumer apps --------------------------------------------------
 Clipchamp.Clipchamp
-
-# Bing / Search
+Microsoft.549981C3F5F10
 Microsoft.BingNews
 Microsoft.BingSearch
 Microsoft.BingWeather
-
-# Copilot (all variants)
-Microsoft.Copilot
-Microsoft.Windows.Copilot
-
-# Edge / Web
-Microsoft.Edge.GameAssist
-Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App
-Microsoft.Windows.CrossDevice
-
-# Gaming
-Microsoft.GamingApp
-Microsoft.Xbox.TCUI
-Microsoft.XboxApp
-Microsoft.XboxGameOverlay
-Microsoft.XboxGamingOverlay
-Microsoft.XboxIdentityProvider
-Microsoft.XboxSpeechToTextOverlay
-
-# Microsoft Apps
 Microsoft.GetHelp
 Microsoft.Getstarted
 Microsoft.Microsoft3DViewer
 Microsoft.MicrosoftOfficeHub
+Microsoft.MicrosoftPCManager
 Microsoft.MicrosoftSolitaireCollection
-Microsoft.MicrosoftStickyNotes
 Microsoft.MixedReality.Portal
-Microsoft.MSPaint
 Microsoft.Office.OneNote
 Microsoft.OfficePushNotificationUtility
 Microsoft.OutlookForWindows
-Microsoft.Paint
 Microsoft.People
 Microsoft.PowerAutomateDesktop
 Microsoft.SkypeApp
 Microsoft.StartExperiencesApp
 Microsoft.Todos
 Microsoft.Wallet
-Microsoft.Windows.DevHome
-Microsoft.Windows.Teams
-Microsoft.WindowsAlarms
-Microsoft.WindowsCamera
-microsoft.windowscommunicationsapps
 Microsoft.WindowsFeedbackHub
 Microsoft.WindowsMaps
-Microsoft.WindowsNotepad
-Microsoft.WindowsSoundRecorder
-Microsoft.WindowsTerminal
+microsoft.windowscommunicationsapps
 Microsoft.YourPhone
-Microsoft.ZuneMusic
-Microsoft.ZuneVideo
 MicrosoftCorporationII.MicrosoftFamily
 MicrosoftCorporationII.QuickAssist
+
+# --- AI / Copilot -------------------------------------------------------------
+Microsoft.Copilot
+Microsoft.Windows.Copilot
+Microsoft.Windows.DevHome
+
+# --- Widgets / cross-device ---------------------------------------------------
+MicrosoftWindows.Client.WebExperience
+Microsoft.WidgetsPlatformRuntime
+MicrosoftWindows.CrossDevice
+
+# --- Teams --------------------------------------------------------------------
 MicrosoftTeams
 MSTeams
+Microsoft.Windows.Teams
 
-# Third-party (OEM / Retail)
-king.com.*
-SpotifyAB.SpotifyMusic
-Pandora.Pandora
-Twitter.Twitter
+# --- Edge (Store-provisioned stubs; the browser itself is removed separately) -
+Microsoft.MicrosoftEdge.Stable
+Microsoft.Edge.GameAssist
+
+# --- Xbox / gaming ------------------------------------------------------------
+# Games that use Xbox Live sign-in / Game Pass need XboxIdentityProvider and
+# Xbox.TCUI: delete those two lines, or use -Preset Gaming (keepXbox keeps
+# the whole Xbox app + Game Bar stack).
+Microsoft.GamingApp
+Microsoft.XboxApp
+Microsoft.Xbox.TCUI
+Microsoft.XboxGameOverlay
+Microsoft.XboxGamingOverlay
+Microsoft.XboxIdentityProvider
+Microsoft.XboxSpeechToTextOverlay
+
+# --- OEM / hardware add-ons ---------------------------------------------------
+AppUp.IntelManagementandSecurityStatus
+DolbyLaboratories.DolbyAccess
+DolbyLaboratories.DolbyDigitalPlusDecoderOEM
+
+# --- Third-party promoted apps (retail / OEM images) --------------------------
+Disney.DisneyPlus
 Facebook.Facebook
 Instagram.Instagram
+king.com.*
 Netflix.Netflix
-Disney.DisneyPlus
-Microsoft.YourPhone
-
-# OneDrive (provisioned package)
-OneDrive
+Pandora.Pandora
+SpotifyAB.SpotifyMusic
+Twitter.Twitter

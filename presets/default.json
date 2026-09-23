@@ -1,31 +1,32 @@
 {
     "name": "Default",
-    "description": "Balanced debloat with standard privacy and performance tweaks for general use",
+    "description": "Balanced tiny11: removes bloat, Edge, OneDrive and AI features; keeps Store, Defender and WebView2",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,
-        "removeWindowsPackages": true,
         "removeOneDrive": true,
-        "removeAI": true,
         "removeEdge": true,
+        "removeWebView": false,
+        "removeAI": true,
         "removeStore": false,
-        "removeDefender": false
+        "removeDefender": false,
+        "keepXbox": false
     },
     "privacy": {
         "disableTelemetry": true,
         "disableAds": true,
         "disableSponsoredApps": true,
         "disableThirdPartyTelemetry": true,
-        "blockFirewallTelemetry": true,
-        "disableZoneInformation": true
+        "blockFirewallTelemetry": false,
+        "disableZoneInformation": false,
+        "disableDefenderCloud": false
     },
     "performance": {
         "enableUltimatePerformance": false,
-        "tuneMouseLatency": true,
-        "tuneDefenderCpuLimit": true,
+        "enableFastShutdown": false,
         "disableMouseAcceleration": false,
         "enableUtcClock": false,
-        "enableFastShutdown": false,
+        "tuneDefenderCpuLimit": true,
         "enableDriverBlocklist": true
     }
 }

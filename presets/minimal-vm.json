@@ -1,15 +1,16 @@
 {
     "name": "Minimal-VM",
-    "description": "Ultra-lightweight preset stripped for virtual machines, testing, and lab environments",
+    "description": "Smallest footprint for disposable VMs and labs: also removes Store, WebView2 and Defender (no antivirus!)",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,
-        "removeWindowsPackages": true,
         "removeOneDrive": true,
-        "removeAI": true,
         "removeEdge": true,
+        "removeWebView": true,
+        "removeAI": true,
         "removeStore": true,
-        "removeDefender": true
+        "removeDefender": true,
+        "keepXbox": false
     },
     "privacy": {
         "disableTelemetry": true,
@@ -17,15 +18,15 @@
         "disableSponsoredApps": true,
         "disableThirdPartyTelemetry": true,
         "blockFirewallTelemetry": true,
-        "disableZoneInformation": true
+        "disableZoneInformation": true,
+        "disableDefenderCloud": false
     },
     "performance": {
         "enableUltimatePerformance": true,
-        "tuneMouseLatency": true,
-        "tuneDefenderCpuLimit": true,
-        "disableMouseAcceleration": true,
-        "enableUtcClock": true,
         "enableFastShutdown": true,
+        "disableMouseAcceleration": false,
+        "enableUtcClock": false,
+        "tuneDefenderCpuLimit": false,
         "enableDriverBlocklist": false
     }
 }

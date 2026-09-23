@@ -1,28 +1,29 @@
 @echo off
-:: Silent Google Chrome installer for the Ultimate Edition.
-:: Downloads and installs the latest 64-bit Chrome silently.
-:: Inspired by the DFwindows11_builder fork's Browsers folder.
+:: Silent Google Chrome installer (Tiny11 Builder - Ultimate Edition).
+:: Staged by -Browser Chrome and run once at the first sign-in by
+:: %WINDIR%\Setup\Tiny11\FirstLogon.cmd, which already waits for the network.
+:: The online installer picks x64 or ARM64 itself. Output goes to firstlogon.log.
 
+setlocal
 set "CHROME_URL=https://dl.google.com/chrome/install/latest/chrome_installer.exe"
 set "CHROME_TMP=%TEMP%\chrome_installer.exe"
 
-echo [Browser Install] Downloading Google Chrome...
+echo [Chrome] Downloading...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "try { Invoke-WebRequest -Uri '%CHROME_URL%' -OutFile '%CHROME_TMP%' -UseBasicParsing -ErrorAction Stop; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
-
-if %ERRORLEVEL% neq 0 (
-    echo [Browser Install] ERROR: Failed to download Chrome.
+  "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = 'Tls12'; for ($i = 1; $i -le 3; $i++) { try { Invoke-WebRequest -Uri $env:CHROME_URL -OutFile $env:CHROME_TMP -UseBasicParsing -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds (10 * $i) } }; exit 1"
+if errorlevel 1 (
+    echo [Chrome] ERROR: download failed.
     exit /b 1
 )
 
-echo [Browser Install] Installing Google Chrome (silent)...
+echo [Chrome] Installing silently...
 "%CHROME_TMP%" /silent /install
-
-if %ERRORLEVEL% equ 0 (
-    echo [Browser Install] Chrome installed successfully.
-) else (
-    echo [Browser Install] WARNING: Chrome installer returned exit code %ERRORLEVEL%.
+set "RC=%ERRORLEVEL%"
+del /q "%CHROME_TMP%" >nul 2>&1
+if not "%RC%"=="0" (
+    echo [Chrome] WARNING: installer exit code %RC%.
+    exit /b %RC%
 )
-
-del /q "%CHROME_TMP%" 2>nul
+echo [Chrome] Installed.
+endlocal
 exit /b 0

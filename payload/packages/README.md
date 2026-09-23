@@ -1,10 +1,7 @@
-# Payload Packages
+# payload/packages
 
-Place optional installer scripts here. Each `.cmd` or `.ps1` file in this
-directory is automatically executed during the first Windows login via
-`SetupComplete.cmd`.
+Put `*.cmd` and `*.ps1` files here and build with `-Payload`. They run once, as
+SYSTEM, at the end of Windows Setup, in alphabetical order (prefix them with
+`10-`, `20-`... to control ordering). See [`../README.md`](../README.md).
 
-Example installers:
-- `dotnet-desktop-runtime.ps1` — .NET Desktop Runtime silent install
-- `vc-redist-x64.ps1` — VC++ redistributable silent install
-- `powerplan-balanced.cmd` — Apply a power plan
+This README itself is never copied into the image.

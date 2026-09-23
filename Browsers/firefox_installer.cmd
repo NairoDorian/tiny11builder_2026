@@ -1,27 +1,31 @@
 @echo off
-:: Silent Mozilla Firefox installer for the Ultimate Edition.
-:: Downloads and installs the latest 64-bit Firefox silently.
+:: Silent Mozilla Firefox installer (Tiny11 Builder - Ultimate Edition).
+:: Staged by -Browser Firefox and run once at the first sign-in by
+:: %WINDIR%\Setup\Tiny11\FirstLogon.cmd, which already waits for the network.
+:: Picks the ARM64 build on ARM64 Windows. Output goes to firstlogon.log.
 
-set "FIREFOX_URL=https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US"
-set "FIREFOX_TMP=%TEMP%\firefox_installer.exe"
+setlocal
+set "FF_OS=win64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "FF_OS=win64-aarch64"
+set "FF_URL=https://download.mozilla.org/?product=firefox-latest-ssl&os=%FF_OS%&lang=en-US"
+set "FF_TMP=%TEMP%\firefox_installer.exe"
 
-echo [Browser Install] Downloading Mozilla Firefox...
+echo [Firefox] Downloading %FF_OS% build...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "try { Invoke-WebRequest -Uri '%FIREFOX_URL%' -OutFile '%FIREFOX_TMP%' -UseBasicParsing -ErrorAction Stop; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
-
-if %ERRORLEVEL% neq 0 (
-    echo [Browser Install] ERROR: Failed to download Firefox.
+  "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = 'Tls12'; for ($i = 1; $i -le 3; $i++) { try { Invoke-WebRequest -Uri $env:FF_URL -OutFile $env:FF_TMP -UseBasicParsing -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds (10 * $i) } }; exit 1"
+if errorlevel 1 (
+    echo [Firefox] ERROR: download failed.
     exit /b 1
 )
 
-echo [Browser Install] Installing Mozilla Firefox (silent)...
-"%FIREFOX_TMP%" /S
-
-if %ERRORLEVEL% equ 0 (
-    echo [Browser Install] Firefox installed successfully.
-) else (
-    echo [Browser Install] WARNING: Firefox installer returned exit code %ERRORLEVEL%.
+echo [Firefox] Installing silently...
+"%FF_TMP%" /S
+set "RC=%ERRORLEVEL%"
+del /q "%FF_TMP%" >nul 2>&1
+if not "%RC%"=="0" (
+    echo [Firefox] WARNING: installer exit code %RC%.
+    exit /b %RC%
 )
-
-del /q "%FIREFOX_TMP%" 2>nul
+echo [Firefox] Installed.
+endlocal
 exit /b 0

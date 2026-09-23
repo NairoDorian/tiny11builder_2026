@@ -1,6 +1,6 @@
 {
-    "name": "Gaming",
-    "description": "Default plus Ultimate Performance power plan, raw mouse input, fast shutdown and telemetry firewall rules",
+    "name": "PrivacyPlus",
+    "description": "Default plus telemetry firewall rules, no Defender cloud reporting/sample submission and fast shutdown; Defender stays on",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,
@@ -10,7 +10,7 @@
         "removeAI": true,
         "removeStore": false,
         "removeDefender": false,
-        "keepXbox": true
+        "keepXbox": false
     },
     "privacy": {
         "disableTelemetry": true,
@@ -19,12 +19,12 @@
         "disableThirdPartyTelemetry": true,
         "blockFirewallTelemetry": true,
         "disableZoneInformation": false,
-        "disableDefenderCloud": false
+        "disableDefenderCloud": true
     },
     "performance": {
-        "enableUltimatePerformance": true,
+        "enableUltimatePerformance": false,
         "enableFastShutdown": true,
-        "disableMouseAcceleration": true,
+        "disableMouseAcceleration": false,
         "enableUtcClock": false,
         "tuneDefenderCpuLimit": true,
         "enableDriverBlocklist": true

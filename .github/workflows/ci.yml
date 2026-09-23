@@ -1,5 +1,15 @@
-# Tiny11 Builder Ultimate Edition — CI
-# Validates PowerShell scripts, XML, and JSON on each push/PR.
+# Tiny11 Builder - Ultimate Edition : continuous integration
+#
+# Everything runs in Windows PowerShell 5.1 (shell: powershell), the runtime
+# the builders target. A real ISO build needs an ISO and admin rights, so CI
+# covers what can be verified without them:
+#   * parse + command resolution of every script
+#   * ~1700 unit checks (catalog, presets, answer files, removal planning,
+#     mocked build stages, static lint rules)
+#   * generated files (docs, manifest, reference answer files) are up to date
+#   * PSScriptAnalyzer (high-signal rules)
+#   * the GUI window renders
+#   * XML / JSON well-formedness
 
 name: CI
 
@@ -7,83 +17,62 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  powershell-syntax:
-    name: PowerShell Syntax Check
+  powershell:
+    name: PowerShell 5.1 checks
     runs-on: windows-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up PowerShell
-        uses: actions/setup-pwsh@v2
+      - name: Parse + command resolution
+        shell: powershell
+        run: .\scripts\parse-check.ps1
 
-      - name: Install pwsh (fallback)
-        if: runner.os == 'Windows'
+      - name: Unit tests
+        shell: powershell
+        run: .\scripts\test-core-helpers.ps1
+
+      - name: Generated files are up to date
+        shell: powershell
+        run: .\scripts\update-generated.ps1 -Check
+
+      - name: PSScriptAnalyzer
+        shell: powershell
+        run: .\scripts\linter.ps1
+
+      - name: GUI renders
+        shell: powershell
         run: |
-          choco install powershell-core -y || echo "Using built-in PowerShell 5.1"
+          Import-Module .\lib\tiny11utils.psm1 -DisableNameChecking
+          Import-Module .\lib\tiny11gui.psm1 -DisableNameChecking
+          $png = Join-Path $env:RUNNER_TEMP 'gui.png'
+          Show-Tiny11BuilderForm -Utilities (Get-OptionalUtilities) -PreviewPath $png `
+            -IconPath .\resources\T11M_icon.ico -BannerPath .\resources\T11M_splash.png
+          if (-not (Test-Path $png) -or (Get-Item $png).Length -lt 10KB) { throw 'GUI preview was not rendered.' }
+          Write-Host "GUI rendered: $((Get-Item $png).Length) bytes"
 
-      - name: Check PowerShell scripts syntax
-        shell: pwsh
-        run: |
-          $scripts = Get-ChildItem -Path . -Include *.ps1,*.psm1 -Recurse -Exclude "repos\**" | Where-Object { $_.FullName -notmatch '\\repos\\' }
-          foreach ($script in $scripts) {
-            Write-Host "Checking: $($script.FullName)"
-            $errors = $null
-            $null = [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors)
-            if ($errors) {
-              Write-Error "$($script.Name) has $($errors.Count) parse error(s):"
-              $errors | ForEach-Object { Write-Error $_.Message }
-              exit 1
-            }
-            Write-Host "  OK: $($script.Name)"
-          }
-
-      - name: Run parse-check (function resolution)
+      - name: Upload GUI screenshot
         if: always()
-        shell: pwsh
-        run: |
-          & .\scripts\parse-check.ps1
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-preview
+          path: ${{ runner.temp }}/gui.png
+          if-no-files-found: ignore
 
-      - name: Run unit tests
-        if: always()
-        shell: pwsh
-        run: |
-          & .\scripts\test-core-helpers.ps1
-
-  validate-xml:
-    name: Validate XML files
+  data-files:
+    name: XML / JSON well-formed
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Validate autoundate XML
+      - uses: actions/checkout@v4
+      - name: Answer files
         run: |
-          for f in autounattend.xml autounattend-arm64.xml; do
-            if [ -f "$f" ]; then
-              echo "Validating: $f"
-              xmllint --noout "$f" && echo "  OK: $f" || exit 1
-            fi
-          done
-
-      - name: Validate preset JSON
+          sudo apt-get install -y -qq libxml2-utils > /dev/null
+          for f in autounattend.xml autounattend-arm64.xml; do xmllint --noout "$f" && echo "ok  $f"; done
+      - name: Presets
         run: |
-          for f in presets/default.json presets/gaming.json presets/minimal-vm.json presets/privacy-plus.json; do
-            if [ -f "$f" ]; then
-              echo "Validating: $f"
-              python3 -c "import json; json.load(open('$f'))" && echo "  OK: $f" || exit 1
-            fi
-          done
-
-      - name: Validate removePackage.txt
-        run: |
-          python3 -c "
-          lines = open('removePackage.txt').read().strip().splitlines()
-          pkgs = [l.strip() for l in lines if l.strip() and not l.startswith('#')]
-          if len(pkgs) == 0:
-              print('WARNING: removePackage.txt is empty')
-          print(f'  OK: {len(pkgs)} packages defined')
-          "
+          for f in presets/*.json; do python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" && echo "ok  $f"; done

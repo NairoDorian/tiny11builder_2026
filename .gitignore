@@ -25,3 +25,11 @@ repos/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Build logs and per-ISO manifests
+logs/
+*.iso.json
+*.iso.sha256
+test_output.txt
+
+gui-settings.json
