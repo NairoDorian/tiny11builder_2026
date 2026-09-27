@@ -134,7 +134,7 @@ if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Adm
             $argList += @("-$($kv.Key)", "$value")
         }
     }
-    $psi = New-Object System.Diagnostics.ProcessStartInfo 'powershell.exe'
+    $psi = New-Object System.Diagnostics.ProcessStartInfo (Get-PowerShellExecutable)
     $psi.Arguments = Build-ProcessArgumentString -Arguments $argList
     $psi.Verb = 'runas'
     [System.Diagnostics.Process]::Start($psi) | Out-Null

@@ -8,7 +8,7 @@
     CompanyName          = 'Tiny11 Builder'
     Description          = 'Windows Forms builder window for Tiny11 Builder - Ultimate Edition (every option, live build log).'
     PowerShellVersion    = '5.1'
-    CompatiblePSEditions = @('Desktop')
+    CompatiblePSEditions = @('Desktop', 'Core')
     RequiredModules      = @()
     FunctionsToExport    = @(
         'ConvertTo-GuiBuildRequest',

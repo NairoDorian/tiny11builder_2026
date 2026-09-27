@@ -1,4 +1,32 @@
 # Changelog
+## Unreleased - registry stall diagnostics
+
+- Bound registry writes and deletions to 30 seconds. A blocked `reg.exe` now
+  fails with the command/key instead of leaving the GUI waiting indefinitely.
+- Close stdin for bounded commands and drain stdout/stderr concurrently;
+  preserve native error text for failed writes.
+- Log each scheduled task before removing its registry entries.
+- Add regression tests for timeout, stdin EOF, output capture and exit codes.
+- Root cause of the stall: offline hives store the task `Id` with its
+  terminating NUL. The NUL cut the `reg.exe delete` command line short, so
+  `/f` was lost and `reg.exe` waited on its Yes/No prompt. The NUL is now
+  stripped, and process arguments containing a NUL are refused.
+- `Plain`/`Boot`/`Logon`/`Maintenance`/`Tree` TaskCache keys have their own
+  protected ACLs; ownership is now taken per key before deleting, so telemetry
+  tasks are fully unregistered (previously only `Tasks\{GUID}` was removed).
+- `Remove-RegistryValue` warns on "Access is denied" instead of treating every
+  exit code 1 as "key not found".
+- Fix "op_Addition" crash after patching boot.wim: the hive-unload messages
+  leaked into `Invoke-BootImageStage`'s return value.
+- Fix "Cannot convert System.Object[] to System.Int64" after ISO creation:
+  oscdimg's output leaked into `New-Tiny11Iso`'s return value.
+- **PowerShell 7 support** (tested on the Microsoft Store PowerShell 7.7 preview).
+  Natively loaded, every DISM cmdlet that services a mounted image failed with
+  "Class not registered" and left a `DismHost` holding the image lock.
+  `Initialize-DismModule` now loads DISM through the Windows PowerShell
+  compatibility session under PowerShell 7 (5.1 is unchanged). Elevation
+  relaunches and the GUI's builder process use the current edition
+  (`Get-PowerShellExecutable`); module manifests declare `Desktop` and `Core`.
 
 All notable changes to Tiny11 Builder - Ultimate Edition. The project is a fork of
 [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder), whose full history is

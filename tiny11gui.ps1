@@ -22,7 +22,8 @@ $ErrorActionPreference = 'Stop'
 $principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "Restarting the Tiny11 GUI as administrator..."
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+    $hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' } # keep the same edition
+    Start-Process -FilePath $hostExe -Verb RunAs -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
     exit 0
 }
 

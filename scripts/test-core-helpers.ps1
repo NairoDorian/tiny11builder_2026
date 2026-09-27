@@ -269,6 +269,40 @@ $fw = ConvertFrom-TweakEntry 'HKLM\zSYSTEM\A|Rule|REG_SZ|v2.10|Action=Block|'
 Check 'entry data may contain |'           ($fw.Value -eq 'v2.10|Action=Block|')
 
 #======================================================================
+Section 'Bounded native commands'
+$nativeHost = (Get-Process -Id $PID).Path # powershell.exe or pwsh.exe
+$nativeResult = Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', '[Console]::Out.WriteLine("stdout"); [Console]::Error.WriteLine("stderr"); exit 7') -TimeoutSeconds 10 -PassThru
+Check 'native runner preserves exit code' ($nativeResult.ExitCode -eq 7)
+Check 'native runner drains stdout' ($nativeResult.Output -contains 'stdout')
+Check 'native runner drains stderr' ($nativeResult.Output -contains 'stderr')
+$nativeClock = [Diagnostics.Stopwatch]::StartNew()
+CheckThrows 'native runner terminates stalled command' { Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -TimeoutSeconds 1 }
+Check 'native timeout returns promptly' ($nativeClock.Elapsed.TotalSeconds -lt 10)
+# .NET Framework writes a UTF-8 BOM to redirected stdin before closing it, so
+# the child may read one BOM line (in its OEM code page) before EOF.
+$nativeResult = Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', '$first = [Console]::ReadLine(); if ($null -eq $first -or $null -eq [Console]::ReadLine()) { exit 0 }; exit 1') -TimeoutSeconds 10 -PassThru
+Check 'native stdin is closed rather than waiting for input' ($nativeResult.ExitCode -eq 0)
+Section 'PowerShell edition support'
+$expectedHost = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
+Check 'child processes use the current edition' ((Get-PowerShellExecutable) -eq $expectedHost)
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    # Natively loaded DISM fails on mounted images under PowerShell 7: an
+    # already auto-loaded native module must be swapped for the proxy.
+    Import-Module Dism -WarningAction SilentlyContinue
+    Check 'pwsh: native DISM is not mistaken for the proxy' (-not (Test-DismCompatibilityProxy (Get-Module Dism)))
+    Initialize-DismModule
+    Check 'pwsh: DISM loaded via compatibility session' (Test-DismCompatibilityProxy (Get-Module Dism))
+    Initialize-DismModule
+    Check 'pwsh: DISM init is idempotent'   (@(Get-Module Dism).Count -eq 1)
+} else {
+    Initialize-DismModule
+    Check '5.1: DISM stays native'          (-not (Test-DismCompatibilityProxy (Get-Module Dism)))
+}
+Check 'DISM cmdlets available after init'   ([bool](Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue))
+
+Check 'quoted argument keeps braces'       ((Format-ProcessArgument 'HKLM\z A\{B50E}') -eq '"HKLM\z A\{B50E}"')
+CheckThrows 'NUL in argument is refused (would truncate the command line)' { Format-ProcessArgument "HKLM\z A\{B50E}$([char]0)" }
+
 Section 'Registry guard'
 Check 'offline path ok'                    (Test-OfflineRegistryPath 'HKLM\zSOFTWARE\Policies\X')
 Check 'long form ok'                       (Test-OfflineRegistryPath 'HKEY_LOCAL_MACHINE\zSYSTEM\ControlSet001')

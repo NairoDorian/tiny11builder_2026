@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/NairoDorian/tiny11builder_2026/actions/workflows/ci.yml/badge.svg)](https://github.com/NairoDorian/tiny11builder_2026/actions/workflows/ci.yml)
 ![Windows 11 25H2 / 24H2](https://img.shields.io/badge/Windows%2011-25H2%20%7C%2024H2%20%7C%2023H2-0067C0)
-![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE)
+![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)
 ![x64 + ARM64](https://img.shields.io/badge/arch-x64%20%7C%20ARM64-555)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -89,8 +89,10 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
 ### Requirements
 
 - Windows 10 or 11 (x64 or ARM64) and an **administrator** account.
-- **Windows PowerShell 5.1** (`powershell.exe`, built into Windows). PowerShell 7 is not
-  supported, because the DISM module targets 5.1.
+- **Windows PowerShell 5.1** (`powershell.exe`, built into Windows) or **PowerShell 7**
+  (`pwsh.exe`, including the Microsoft Store build). Under PowerShell 7 the in-box DISM
+  module fails on mounted images ("Class not registered"), so the builder loads it through
+  the Windows PowerShell compatibility session automatically; nothing to configure.
 - About **25 GB free** on an **NTFS** drive: 1.5 × the image size, at least 20 GB. The GUI
   shows the free space and warns before you start.
 - `oscdimg.exe` is taken from the Windows ADK if installed. Otherwise it is downloaded once
@@ -123,7 +125,8 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
 | ![Apps](docs/gui-apps.png) | ![Tweaks](docs/gui-tweaks.png) |
 | ![Setup & account](docs/gui-setup.png) | ![Extras](docs/gui-extras.png) |
 
-The build runs as a hidden, non-interactive `powershell.exe`. Its arguments go through a
+The build runs as a hidden, non-interactive PowerShell process of the same edition as the
+GUI (`powershell.exe` or `pwsh.exe`). Its arguments go through a
 temporary file that is deleted immediately, so a password never appears on a command line.
 
 ---

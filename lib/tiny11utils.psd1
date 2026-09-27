@@ -8,7 +8,7 @@
     CompanyName          = 'Tiny11 Builder'
     Description          = 'Offline Windows image servicing for Tiny11 Builder: DISM/registry helpers, tweak catalog, answer files, removal planning and ISO creation.'
     PowerShellVersion    = '5.1'
-    CompatiblePSEditions = @('Desktop')
+    CompatiblePSEditions = @('Desktop', 'Core')
     FunctionsToExport    = @(
         'Add-BuildDefenderExclusion',
         'Add-DeprovisionedPackage',
@@ -45,6 +45,7 @@
         'Get-OptionalUtilities',
         'Get-OscdimgBootArgument',
         'Get-PackageFamilyName',
+        'Get-PowerShellExecutable',
         'Get-PresetFlagNames',
         'Get-PresetFlagSection',
         'Get-ProtectedAppxPrefixes',
@@ -56,6 +57,8 @@
         'Get-TweakPlan',
         'Get-WindowsDisplayVersion',
         'Grant-AdminFullControl',
+        'Grant-OfflineKeyTreeAccess',
+        'Initialize-DismModule',
         'Initialize-Oscdimg',
         'Initialize-ScratchWorkspace',
         'Install-ImagePayload',
@@ -101,6 +104,7 @@
         'Show-PackageSelector',
         'Show-WindowsImageMenu',
         'Test-AppxPrefixMatch',
+        'Test-DismCompatibilityProxy',
         'Test-IsoResult',
         'Test-OfflineRegistryPath',
         'Test-Prerequisites',

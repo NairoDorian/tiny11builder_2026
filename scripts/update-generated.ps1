@@ -210,7 +210,7 @@ $outputs['lib\tiny11utils.psd1'] = @"
     CompanyName          = 'Tiny11 Builder'
     Description          = 'Offline Windows image servicing for Tiny11 Builder: DISM/registry helpers, tweak catalog, answer files, removal planning and ISO creation.'
     PowerShellVersion    = '5.1'
-    CompatiblePSEditions = @('Desktop')
+    CompatiblePSEditions = @('Desktop', 'Core')
     FunctionsToExport    = @(
 $exportList
     )
@@ -242,7 +242,7 @@ $outputs['lib\tiny11gui.psd1'] = @"
     CompanyName          = 'Tiny11 Builder'
     Description          = 'Windows Forms builder window for Tiny11 Builder - Ultimate Edition (every option, live build log).'
     PowerShellVersion    = '5.1'
-    CompatiblePSEditions = @('Desktop')
+    CompatiblePSEditions = @('Desktop', 'Core')
     RequiredModules      = @()
     FunctionsToExport    = @(
 $guiList

@@ -1,7 +1,8 @@
 # Tiny11 Builder - Ultimate Edition : continuous integration
 #
-# Everything runs in Windows PowerShell 5.1 (shell: powershell), the runtime
-# the builders target. A real ISO build needs an ISO and admin rights, so CI
+# The full suite runs in Windows PowerShell 5.1 (shell: powershell); parse,
+# unit tests and the GUI also run in PowerShell 7 (shell: pwsh), since the
+# builders support both. A real ISO build needs an ISO and admin rights, so CI
 # covers what can be verified without them:
 #   * parse + command resolution of every script
 #   * ~1700 unit checks (catalog, presets, answer files, removal planning,
@@ -63,6 +64,31 @@ jobs:
           name: gui-preview
           path: ${{ runner.temp }}/gui.png
           if-no-files-found: ignore
+
+  pwsh:
+    name: PowerShell 7 checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Parse + command resolution
+        shell: pwsh
+        run: .\scripts\parse-check.ps1
+
+      - name: Unit tests
+        shell: pwsh
+        run: .\scripts\test-core-helpers.ps1
+
+      - name: GUI renders
+        shell: pwsh
+        run: |
+          Import-Module .\lib\tiny11utils.psm1 -DisableNameChecking
+          Import-Module .\lib\tiny11gui.psm1 -DisableNameChecking
+          $png = Join-Path $env:RUNNER_TEMP 'gui-pwsh.png'
+          Show-Tiny11BuilderForm -Utilities (Get-OptionalUtilities) -PreviewPath $png `
+            -IconPath .\resources\T11M_icon.ico -BannerPath .\resources\T11M_splash.png
+          if (-not (Test-Path $png) -or (Get-Item $png).Length -lt 10KB) { throw 'GUI preview was not rendered.' }
+          Write-Host "GUI rendered: $((Get-Item $png).Length) bytes"
 
   data-files:
     name: XML / JSON well-formed

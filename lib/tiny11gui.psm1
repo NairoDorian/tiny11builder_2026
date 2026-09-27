@@ -22,8 +22,8 @@
       Build            summary, validation, equivalent command line, and the
                        build itself: live log, stage progress, cancel + cleanup
 
-    The build runs as a separate, hidden, non-interactive powershell.exe
-    (builder + -Yes); its output is streamed into the window. The window never
+    The build runs as a separate, hidden, non-interactive PowerShell process
+    of the GUI's own edition (powershell.exe or pwsh.exe, builder + -Yes); its output is streamed into the window. The window never
     touches the host except "Load editions", which mounts the chosen ISO
     read-only for a few seconds to list its editions.
 
@@ -445,7 +445,8 @@ function Import-GuiSettings {
 #======================================================================
 
 function Start-GuiBuild {
-    # Starts the builder in a hidden powershell.exe. Arguments travel through
+    # Starts the builder in a hidden powershell.exe or pwsh.exe (the GUI's own
+    # edition, see Get-PowerShellExecutable). Arguments travel through
     # a CLIXML file the launcher deletes immediately (so a password never
     # appears on a command line); every output line is appended to $LogPath.
     # Returns the Process. The launcher writes "__TINY11_EXIT__ <code>" last.
@@ -490,7 +491,7 @@ exit $code
     [IO.File]::WriteAllText($launcher, $launcherCode, (New-Object System.Text.UTF8Encoding $true))
     [IO.File]::WriteAllText($LogPath, '', (New-Object System.Text.UTF8Encoding $false))
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo 'powershell.exe'
+    $psi = New-Object System.Diagnostics.ProcessStartInfo (Get-PowerShellExecutable)
     $psi.Arguments = Build-ProcessArgumentString -Arguments @(
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $launcher,
         '-ArgsFile', $argsFile, '-LogPath', $LogPath, '-Builder', $ScriptPath)

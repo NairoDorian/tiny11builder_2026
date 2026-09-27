@@ -12,8 +12,14 @@ GUI polish, docs.
    `Set-RegistryValue` / `Remove-RegistryValue` enforce this: they refuse other paths and hives
    that are not loaded. Do not bypass them with raw `reg.exe` or `Set-ItemProperty`.
 2. **Offline hives have no `CurrentControlSet`**: use `ControlSet001`.
-3. **Windows PowerShell 5.1 is the runtime.**
+3. **Code must run on Windows PowerShell 5.1 and PowerShell 7.**
    - Save `.ps1/.psm1/.psd1` files as UTF-8 **with BOM**; `.gitattributes` keeps CRLF line endings.
+   - DISM cmdlets under PowerShell 7 go through the compatibility session (`Initialize-DismModule`,
+     called by `Test-Prerequisites`) and return deserialized objects: read properties and compare
+     enum values as strings; never call methods on DISM objects or type-check them.
+   - Start child PowerShell processes with `Get-PowerShellExecutable`, not a hard-coded `powershell.exe`
+     (the `SetupComplete`/first-logon scripts inside the image are the exception: only 5.1 exists there).
+   - Run `scripts\test-core-helpers.ps1` under both `powershell.exe` and `pwsh`.
    - Never write `& tool 2>$null` in code that runs with `$ErrorActionPreference = 'Stop'`: PS 5.1
      turns the stderr line into a terminating error. Use `Invoke-Native`.
 4. **Fail early, degrade gracefully.**

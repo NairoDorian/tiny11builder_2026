@@ -24,12 +24,24 @@ function Format-ProcessArgument {
     # empty strings and values with whitespace/quotes are wrapped in quotes,
     # embedded quotes become \" and backslashes that precede a quote are doubled.
     param([AllowEmptyString()][string]$Argument)
+    # A NUL ends the Win32 command line, silently dropping everything after it.
+    if ($Argument.Contains([string][char]0)) {
+        throw "Process argument contains a NUL character: '$($Argument -replace "`0", '\0')'"
+    }
     if ($Argument -and $Argument -notmatch '[\s"]') {
         return $Argument
     }
     $escaped = [regex]::Replace($Argument, '(\\*)"', { param($m) ($m.Groups[1].Value * 2) + '\"' })
     $escaped = [regex]::Replace($escaped, '(\\+)$', { param($m) $m.Groups[1].Value * 2 })
     return '"' + $escaped + '"'
+}
+
+function Get-PowerShellExecutable {
+    # Child PowerShell processes (elevation relaunch, GUI build) use the same
+    # edition as the current session. 'pwsh.exe' resolves through PATH and the
+    # app execution alias, so the Microsoft Store build works too.
+    if ($PSVersionTable.PSEdition -eq 'Core') { return 'pwsh.exe' }
+    return 'powershell.exe'
 }
 
 function Build-ProcessArgumentString {
@@ -48,8 +60,37 @@ function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
         [string[]]$ArgumentList = @(),
-        [switch]$PassThru
+        [switch]$PassThru,
+        [ValidateRange(0, 3600)][int]$TimeoutSeconds = 0
     )
+    # Bound short registry operations; DISM and large file operations retain
+    # their existing unlimited runtime. Drain both pipes concurrently.
+    if ($TimeoutSeconds -gt 0) {
+        $start = New-Object System.Diagnostics.ProcessStartInfo
+        $start.FileName = $FilePath
+        $start.Arguments = Build-ProcessArgumentString -Arguments $ArgumentList
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.RedirectStandardInput = $true
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $start
+        try {
+            [void]$process.Start()
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+            $process.StandardInput.Close() # No invisible confirmation prompts.
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                $process.Kill()
+                [void]$process.WaitForExit(5000)
+                throw "$FilePath timed out after $TimeoutSeconds seconds: $($ArgumentList -join ' ')"
+            }
+            $output = @(($stdout.Result + $stderr.Result) -split '\r?\n' | Where-Object { $_ })
+            if ($PassThru) { return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $output } }
+            return $process.ExitCode
+        } finally { $process.Dispose() }
+    }
     $ErrorActionPreference = 'Continue'
     $output = & $FilePath @ArgumentList 2>&1 | ForEach-Object { "$_" }
     $exitCode = $LASTEXITCODE
@@ -220,8 +261,9 @@ function Set-RegistryValue {
     Assert-OfflineHiveLoaded -Path $path
     $regArgs = @('add', $path, '/f', '/t', $type, '/d', $value)
     if ($name) { $regArgs += @('/v', $name) } else { $regArgs += '/ve' }
-    $rc = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs
-    Assert-CommandExitCode -Label "reg add $path\$name" -ExitCode $rc
+    $nativeResult = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs -TimeoutSeconds 30 -PassThru
+    $rc = $nativeResult.ExitCode
+    if ($rc -ne 0) { throw "reg add $path\$name failed with exit code ${rc}: $($nativeResult.Output -join ' ')" }
     Write-Output "Set registry value: $path\$name"
 }
 
@@ -238,9 +280,14 @@ function Remove-RegistryValue {
     Assert-OfflineHiveLoaded -Path $path
     $regArgs = @('delete', $path, '/f')
     if ($Name) { $regArgs += @('/v', $Name) }
-    $rc = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs
+    $nativeResult = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs -TimeoutSeconds 30 -PassThru
+    $rc = $nativeResult.ExitCode
     if ($rc -ne 0 -and $rc -ne 1) {
-        throw "reg delete $path failed with exit code $rc"
+        throw "reg delete $path failed with exit code ${rc}: $($nativeResult.Output -join ' ')"
+    }
+    # Exit code 1 also covers "Access is denied"; only a missing key is benign.
+    if ($rc -eq 1 -and ($nativeResult.Output -join ' ') -notmatch 'unable to find') {
+        Write-Warning "reg delete $path failed: $($nativeResult.Output -join ' ')"
     }
     if ($rc -eq 0) {
         Write-Output "Removed registry entry: $path$(if ($Name) { "\$Name" })"
@@ -436,13 +483,36 @@ function Get-OfflineTaskIds {
         $keys += @(Get-ChildItem -LiteralPath $key -Recurse -ErrorAction SilentlyContinue)
     }
     $result = foreach ($k in $keys) {
-        $id = $k.GetValue('Id')
+        # Offline hives store Id with its terminating NUL ("{GUID}`0"). Passed
+        # on to reg.exe, that NUL truncates the command line (dropping the
+        # closing quote and /f), so reg.exe waits on its Yes/No prompt.
+        $id = ([string]$k.GetValue('Id')).Trim([char]0, ' ')
         if ($id) {
-            [pscustomobject]@{ TreePath = $k.Name; Id = [string]$id }
+            [pscustomobject]@{ TreePath = $k.Name; Id = $id }
         }
         $k.Close()
     }
     return @($result)
+}
+
+function Grant-OfflineKeyTreeAccess {
+    # Takes ownership of an offline key and every key below it. TaskCache
+    # subkeys (Plain\{GUID}, Tree\<task>, ...) carry their own protected ACLs,
+    # so the grant on the TaskCache roots does not reach them and reg delete
+    # would fail with "Access is denied".
+    param(
+        [Parameter(Mandatory = $true)][System.Security.Principal.NTAccount]$AdminGroup,
+        [Parameter(Mandatory = $true)][string]$Key  # relative to HKLM, e.g. zSOFTWARE\...
+    )
+    if (-not (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\$Key")) { return }
+    $null = Enable-TaskCacheWriteAccess -AdminGroup $AdminGroup -OfflineTaskKey $Key
+    $handle = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($Key)
+    if (-not $handle) { return }
+    $children = $handle.GetSubKeyNames()
+    $handle.Close()
+    foreach ($child in $children) {
+        Grant-OfflineKeyTreeAccess -AdminGroup $AdminGroup -Key "$Key\$child"
+    }
 }
 
 function Remove-OfflineScheduledTask {
@@ -453,17 +523,22 @@ function Remove-OfflineScheduledTask {
         [Parameter(Mandatory = $true)][string]$MountPath,
         [Parameter(Mandatory = $true)][string[]]$TaskPath
     )
-    $cache = 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
+    $cacheKey = 'zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
+    $cache = "HKLM\$cacheKey"
+    $adminGroup = (New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')).Translate([System.Security.Principal.NTAccount])
     $removed = 0
     foreach ($task in $TaskPath) {
+        Write-Host "Removing scheduled task: $task"
         $entries = @(Get-OfflineTaskIds -TaskPath $task)
         foreach ($entry in $entries) {
             foreach ($sub in 'Tasks', 'Boot', 'Logon', 'Plain', 'Maintenance') {
+                Grant-OfflineKeyTreeAccess -AdminGroup $adminGroup -Key "$cacheKey\$sub\$($entry.Id)"
                 Remove-RegistryValue "$cache\$sub\$($entry.Id)" | Out-Null
             }
             $removed++
         }
         # Deleting the Tree key last also removes any empty folder keys below it.
+        Grant-OfflineKeyTreeAccess -AdminGroup $adminGroup -Key "$cacheKey\Tree\$($task.Trim('\'))"
         Remove-RegistryValue "$cache\Tree\$($task.Trim('\'))" | Out-Null
 
         $file = Join-Path "$MountPath\Windows\System32\Tasks" $task.Trim('\')
@@ -1081,6 +1156,31 @@ function Invoke-EmergencyCleanup {
 
 #---------[ Prerequisites & Disk Validation ]---------#
 
+function Test-DismCompatibilityProxy {
+    # True for the implicit-remoting proxy Import-Module -UseWindowsPowerShell
+    # creates. The native module is a script module too, so ModuleType cannot
+    # tell them apart.
+    param([System.Management.Automation.PSModuleInfo]$Module)
+    return ($null -ne $Module -and $Module.PrivateData -is [hashtable] -and [bool]$Module.PrivateData['ImplicitRemoting'])
+}
+
+function Initialize-DismModule {
+    # PowerShell 7 loads the in-box DISM module natively, but every cmdlet that
+    # services a mounted image (Get-AppxProvisionedPackage, Get-WindowsCapability,
+    # Get-WindowsPackage, ...) then fails with "Class not registered", and the
+    # failed session keeps the image locked. Under PowerShell 7 the module is
+    # therefore loaded through the Windows PowerShell compatibility session: the
+    # cmdlets run in a hidden powershell.exe and return deserialized objects
+    # (enum values such as State become strings, which is all this project
+    # compares). Windows PowerShell 5.1 keeps the native module. -Global makes
+    # the proxies visible to the builder scripts, not just to this module.
+    if ($PSVersionTable.PSEdition -ne 'Core') { return }
+    $loaded = @(Get-Module -Name Dism)
+    if ($loaded.Count -and (Test-DismCompatibilityProxy $loaded[0])) { return }
+    if ($loaded.Count) { Remove-Module -Name Dism -Force }
+    Import-Module -Name Dism -UseWindowsPowerShell -Global -WarningAction SilentlyContinue -ErrorAction Stop
+}
+
 function Test-Prerequisites {
     Write-Output "Checking prerequisites..."
 
@@ -1088,9 +1188,10 @@ function Test-Prerequisites {
         throw "DISM was not found. It ships with every Windows 10/11 install; check that %SystemRoot%\System32 is on PATH."
     }
 
+    Initialize-DismModule
     foreach ($cmd in @('Mount-WindowsImage', 'Dismount-WindowsImage', 'Get-WindowsImage', 'Export-WindowsImage', 'Get-AppxProvisionedPackage')) {
         if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-            throw "Required cmdlet '$cmd' was not found. Run the builder in Windows PowerShell 5.1 (powershell.exe), which includes the DISM module."
+            throw "Required cmdlet '$cmd' was not found. The DISM module ships with Windows (%SystemRoot%\System32\WindowsPowerShell\v1.0\Modules\Dism)."
         }
     }
 
@@ -2329,7 +2430,7 @@ function Invoke-RegistryStage {
         Write-Host "Removed $count scheduled task registration(s)."
     }
     Write-Host "Unloading the image registry..."
-    Dismount-OfflineHives
+    Dismount-OfflineHives | Out-Host # keep "Unloaded ..." lines out of the return value
     return $result
 }
 
@@ -2394,7 +2495,7 @@ function Invoke-BootImageStage {
     Assert-MountedImage -MountPath $mountDir
     Mount-OfflineHives -MountPath $mountDir
     $result = Invoke-TweakCatalog -Only 'HardwareBypass'
-    Dismount-OfflineHives
+    Dismount-OfflineHives | Out-Host # keep "Unloaded ..." lines out of the return value
     if ($DriverPath) {
         $count = Add-ImageDrivers -MountPath $mountDir -DriverPath $DriverPath
         Write-Host "Injected $count driver(s) into Windows Setup."
@@ -2422,7 +2523,8 @@ function New-Tiny11Iso {
     if ($Label.Length -gt 32) { $Label = $Label.Substring(0, 32) }
     if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
     Write-Host "Creating ISO $OutputIso ..."
-    & $oscdimg '-m' '-o' '-u2' '-udfver102' "-l$Label" $bootArg $WorkRoot $OutputIso
+    # Out-Host: oscdimg's progress lines must not become part of the return value.
+    & $oscdimg '-m' '-o' '-u2' '-udfver102' "-l$Label" $bootArg $WorkRoot $OutputIso | Out-Host
     $exitCode = $LASTEXITCODE
     if ($found.Source -eq 'download') { Remove-Item -LiteralPath $oscdimg -Force -ErrorAction SilentlyContinue }
     $bytes = if (Test-Path -LiteralPath $OutputIso) { (Get-Item -LiteralPath $OutputIso).Length } else { [long]0 }
