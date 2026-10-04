@@ -1,0 +1,18 @@
+﻿{
+    "SourceBytes":  9047330816,
+    "PresetSha256":  "CC5FCDA1007293EA7ADA70BBFD2DCDD79F006DD7E3691B154DF9EC30DC0267B2",
+    "Builders":  [
+
+                 ],
+    "MountedImages":  [
+
+                      ],
+    "NativeWriters":  [
+
+                      ],
+    "SourceIso":  "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\Windows11_Client_x64_en-us_26300_9457.iso",
+    "LoadedOfflineHives":  [
+
+                           ],
+    "Priority":  "Normal"
+}

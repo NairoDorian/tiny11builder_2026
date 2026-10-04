@@ -1,0 +1,31 @@
+# Upstream PR review — 2026-10-04
+
+Reviewed the current patches of [#623](https://github.com/ntdevlabs/tiny11builder/pull/623), [#628](https://github.com/ntdevlabs/tiny11builder/pull/628) and [#622](https://github.com/ntdevlabs/tiny11builder/pull/622). All three were open and unmerged when checked. These changes are adaptations to our shared helpers/catalog; the upstream scripts were not substituted for our builders. The compact [audit](verification/2026-10-04/upstream-pr-audit.json) records the inspected files and decisions.
+
+| PR | Change adopted here | Existing behavior retained |
+|---|---|---|
+| #623: mount conflicts | Driver-enabled Setup servicing uses `scratchdir_boot`, separate from the install image's `scratchdir`. Folder deletion checks mount state and rejects redirected directories; transient handles get three PowerShell attempts. Emergency cleanup covers both folders and retains source image files if dismount fails or mount state is unknown. | Default Setup patching already edits small hive files without mounting. No new global DISM cleanup or shell-built deletion fallback; no reboot recovery requirement. |
+| #628: lost Setup metadata | Both builders restore missing edition/product/installation/language fields from the original selected source edition, then re-read and strictly validate the saved image. Conflicting fields, missing architecture/version/flags, multiple images and incomplete source metadata fail. | Valid images are read-only no-ops. Maximum compression and actual edition, languages and Windows version remain unchanged. |
+| #622: AI/privacy additions | Add `EdgeHistoryAISearchEnabled=0`, `BuiltInAIAPIsEnabled=0` and `AIGenThemesEnabled=0` to the existing `RemoveAI` group. | Photos Keep/Remove choices, generated OOBE modes, Paint, Notepad, Recall, Click to Do, telemetry and Widgets controls remain in place. |
+
+## Why the metadata repair uses wimlib
+
+An image can retain its `FLAGS` label while losing fields Windows Setup uses to identify the edition/language. The strict guard added earlier detects this, but stopped the build rather than restoring missing fields. The repair now supplies only source-derived missing values through [`wimlib-imagex info --image-property`](https://wimlib.net/man1/wiminfo.html). Indexed language properties follow the [documented sequential syntax](https://wimlib.net/man1/wimcapture.html), so multilingual images and a default language other than the first listed language are preserved.
+
+`--check` validates existing integrity information and maintains/adds the integrity table during modification. wimlib manages the container layout; we do not overwrite raw headers, clear integrity metadata or recompress file resources. A native failure or incomplete readback prevents ISO creation. A non-empty unexpected field is rejected before any write, rather than relabeled as the expected edition. This addresses the failure mechanism proposed in #628/#583; it does not claim the previously tested 26300.9457 outputs exhibited that bug. Their XML was already complete.
+
+## Why #622 was applied selectively
+
+Most of its Windows changes already exist in `data/tweaks.psd1` or the app-removal planner. In particular, Photos is configurable and the measured preset explicitly keeps it. Replacing our answer-file generator with the proposed static OOBE file would override the existing interactive/automatic setup choices.
+
+The proposed Paint path differs from [Microsoft's WindowsAI policy mapping](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai#disablecocreator). Our existing `Software\Microsoft\Windows\CurrentVersion\Policies\Paint` path is documented and was retained. Broad new consent-store/agent keys without verified semantics were not copied. A removal choice should not silently gain unrelated account/setup restrictions.
+
+The three added Edge policies have documented DWORD paths and disabled values: [AI history search](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/edgehistoryaisearchenabled), [built-in AI APIs](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/builtinaiapisenabled), and [generated themes](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/aigenthemesenabled). They are applied only when `RemoveAI` is enabled, including when Edge is retained or later installed. Microsoft documents that these policies do not apply to Microsoft-account profiles; older unsupported app versions may ignore them. This is not a claim that every future AI feature is disabled.
+
+## Verification and build provenance
+
+Real file-only fixtures cover LZX, XPRESS and solid LZMS sources and both standard WIM and maximum-compressed ESD outputs. Tests reproduce lost edition/product/language fields with intact FLAGS, restore multiple languages and a non-first default, verify the retained integrity table, and compare logical file data, alternate streams, permissions, times and hard-link membership. Matching metadata leaves the file hash unchanged; conflicting editions fail without rewriting it. Mocked servicing tests cover the driver-enabled boot folder, bounded busy retries, failed dismounts, unknown mount state and redirected directory refusals. AI tests cover opt-out and the retained Photos choice.
+
+The two complete Windows 26H2 benchmark builds described in [PERFORMANCE.md](PERFORMANCE.md) ran at commit `7aa45d5aa88e5c2bab9a9df692fe51404357c8ce`, before these PR adaptations. The 6,229,929,984-byte ISO described by the historical reports was built before the new policy entries. Its recorded retained path was absent at the follow-up check; source ISO and compact verification summaries remain. The current PR adaptations are regression-tested with fresh small fixtures; no new full build or VM installation was performed for them. All work targets project/offline image files; live Windows settings remain read-only.
+
+Final local checks: PowerShell 7 **1,865 passed**, PowerShell 5.1 **1,863 passed**, no failures; **129 real WIM/ESD checks** and **23 media/progress checks** per shell. Parser/command resolution, generated-file freshness, PSScriptAnalyzer and Git whitespace checks passed. [Saved check summary](verification/2026-10-04/post-review-verification.json).

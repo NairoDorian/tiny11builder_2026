@@ -1211,29 +1211,52 @@ function Clear-StaleBuildState {
     $null = Invoke-Native -FilePath 'dism.exe' -ArgumentList @('/English', '/Cleanup-Mountpoints')
 }
 
-function Initialize-ScratchWorkspace {
-    # Guarantees an empty, existing mount directory (Mount-WindowsImage needs
-    # it to exist - the old version returned early on a first run and the
-    # mount then failed), discarding any image still mounted there.
-    param([Parameter(Mandatory = $true)][string]$ScratchRoot)
+function Remove-ScratchMountDirectory {
+    # Never recurse into a mounted image or a redirected directory. Native
+    # PowerShell retries cover briefly held handles without a cmd/rmdir fallback.
+    param(
+        [Parameter(Mandatory = $true)][string]$ScratchRoot,
+        [ValidateSet('scratchdir', 'scratchdir_boot')][string]$MountName = 'scratchdir'
+    )
+    $root = [IO.Path]::GetFullPath($ScratchRoot).TrimEnd('\') + '\'
+    $path = [IO.Path]::GetFullPath((Join-Path $ScratchRoot $MountName))
+    if (-not $path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($path) -ne $MountName) { throw 'Refusing mount-folder cleanup outside its build root.' }
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing redirected mount-folder cleanup: $path"
+    }
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $mounted = @(Get-WindowsImage -Mounted -ErrorAction Stop | Where-Object { $_.Path -eq $path -or $_.MountPath -eq $path })
+        if ($mounted.Count) { throw "Image is still mounted at $path; refusing to delete its directory." }
+        try {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            if ($attempt -eq 3) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
 
-    $scratchDir = Join-Path $ScratchRoot 'scratchdir'
-    if (Test-Path $scratchDir) {
-        $mounted = @(Get-WindowsImage -Mounted -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $scratchDir -or $_.MountPath -eq $scratchDir })
-        if ($mounted.Count -gt 0) {
-            Write-Host "Dismounting leftover scratch image from a previous run..."
-            $null = Invoke-SafeDismountImage -Path $scratchDir
+function Initialize-ScratchWorkspace {
+    # Setup servicing with drivers uses a separate folder from install.wim
+    # (upstream PR #623). The existing install mount path remains compatible.
+    param(
+        [Parameter(Mandatory = $true)][string]$ScratchRoot,
+        [ValidateSet('scratchdir', 'scratchdir_boot')][string]$MountName = 'scratchdir'
+    )
+    $scratchDir = Join-Path $ScratchRoot $MountName
+    if (Test-Path -LiteralPath $scratchDir) {
+        if ((Get-Item -LiteralPath $scratchDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing redirected scratch directory: $scratchDir"
         }
-        $absoluteRoot = [IO.Path]::GetFullPath(($ScratchRoot.TrimEnd('\') + '\'))
-        $absoluteScratch = [IO.Path]::GetFullPath($scratchDir)
-        if (-not $absoluteScratch.StartsWith($absoluteRoot, [StringComparison]::OrdinalIgnoreCase) -or
-            [IO.Path]::GetFileName($absoluteScratch) -ne 'scratchdir') {
-            throw 'Refusing to remove a scratch folder outside its build root.'
+        $mounted = @(Get-WindowsImage -Mounted -ErrorAction Stop | Where-Object { $_.Path -eq $scratchDir -or $_.MountPath -eq $scratchDir })
+        if ($mounted.Count) {
+            Write-Host 'Dismounting leftover scratch image from a previous run...'
+            if (-not (Invoke-SafeDismountImage -Path $scratchDir)) { throw "Failed to discard previous image at $scratchDir." }
         }
-        if ($mounted.Count -gt 0 -and @(Get-WindowsImage -Mounted -ErrorAction Stop | Where-Object { $_.Path -eq $scratchDir -or $_.MountPath -eq $scratchDir }).Count) {
-            throw 'The previous image is still mounted; refusing to delete its directory.'
-        }
-        Remove-Item -LiteralPath $absoluteScratch -Recurse -Force -ErrorAction Stop
+        Remove-ScratchMountDirectory -ScratchRoot $ScratchRoot -MountName $MountName
     }
     New-Item -ItemType Directory -Force -Path $scratchDir | Out-Null
     return $scratchDir
@@ -1369,8 +1392,23 @@ function Invoke-EmergencyCleanup {
         [switch]$KeepWorkFolder
     )
     try { Invoke-SafeOfflineRegistryUnload } catch { Write-Verbose "Hive unload: $($_.Exception.Message)" }
-    if ($ScratchDisk -and (Test-Path "$ScratchDisk\scratchdir")) {
-        try { $null = Invoke-SafeDismountImage -Path "$ScratchDisk\scratchdir" } catch { Write-Verbose "Dismount: $($_.Exception.Message)" }
+    $keepImageFiles = [bool]$KeepWorkFolder
+    if ($ScratchDisk) {
+        foreach ($name in 'scratchdir', 'scratchdir_boot') {
+            $path = Join-Path $ScratchDisk $name
+            if (Test-Path -LiteralPath $path) {
+                try {
+                    if (-not (Invoke-SafeDismountImage -Path $path)) { $keepImageFiles = $true }
+                } catch { $keepImageFiles = $true; Write-Verbose "Dismount: $($_.Exception.Message)" }
+            }
+        }
+        try {
+            $root = [IO.Path]::GetFullPath($ScratchDisk).TrimEnd('\') + '\'
+            if (@(Get-WindowsImage -Mounted -ErrorAction Stop | Where-Object {
+                $mountedPath = if ($_.Path) { $_.Path } else { $_.MountPath }
+                $mountedPath -and ([IO.Path]::GetFullPath($mountedPath)).StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
+            }).Count) { $keepImageFiles = $true }
+        } catch { $keepImageFiles = $true; Write-Verbose 'Mount state is unknown; retaining image files.' }
     }
     if ($IsoImagePath) {
         Dismount-DiskImage -ImagePath $IsoImagePath -ErrorAction SilentlyContinue | Out-Null
@@ -1378,8 +1416,8 @@ function Invoke-EmergencyCleanup {
     if ($DefenderExclusions) {
         try { Remove-BuildDefenderExclusion -Path $DefenderExclusions } catch { Write-Verbose "Defender exclusion: $($_.Exception.Message)" }
     }
-    if (-not $KeepWorkFolder -and $ScratchDisk -and (Test-Path "$ScratchDisk\tiny11")) {
-        Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not $keepImageFiles -and $ScratchDisk -and (Test-Path "$ScratchDisk\tiny11")) {
+        Remove-Item -LiteralPath "$ScratchDisk\tiny11" -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1978,26 +2016,67 @@ function Get-InstallImageMetadata {
 }
 
 function Assert-InstallImageMetadata {
-    # Stop before mastering if export lost the source edition/language XML.
-    # Never invent Pro/en-US fields or patch WIM headers to hide a mismatch.
-    param([Parameter(Mandatory = $true)][string]$ImagePath, [Parameter(Mandatory = $true)]$Expected)
+    # PR #628: restore only missing source-derived Setup fields through
+    # wimlib's XML API. It maintains the header/integrity table and does not
+    # recompress payload data. Conflicting fields always fail before any write.
+    param(
+        [Parameter(Mandatory = $true)][string]$ImagePath,
+        [Parameter(Mandatory = $true)]$Expected,
+        [switch]$RepairMissing
+    )
     $actual = @(Get-InstallImageMetadata -ImagePath $ImagePath)
     if ($actual.Count -ne 1) { throw 'Final installation image must contain exactly one edition.' }
-    foreach ($field in 'Edition', 'Architecture', 'Language') {
-        if (-not $Expected.$field -or -not $actual[0].$field) {
-            throw "Installation metadata is missing $field. See docs/BUILD_BUG_REPORT.md (upstream #583)."
-        }
-    }
-    foreach ($field in 'Edition', 'Flags', 'Architecture', 'InstallationType', 'ProductType', 'ProductSuite', 'Language', 'DefaultLanguage', 'Version') {
-        if ($Expected.$field -and $actual[0].$field -ine $Expected.$field) {
-            throw "Installation metadata $field changed from '$($Expected.$field)' to '$($actual[0].$field)'. Refusing ISO creation."
-        }
-    }
     $expectedLanguages = @($Expected.Languages | Sort-Object -Unique)
-    $actualLanguages = @($actual[0].Languages | Sort-Object -Unique)
-    if (-not $expectedLanguages.Count -or (($expectedLanguages -join ',') -ine ($actualLanguages -join ','))) {
-        throw 'Installation language metadata changed or is missing. Refusing ISO creation.'
+    if (-not $Expected.Edition -or -not $Expected.Architecture -or -not $Expected.Language -or -not $expectedLanguages.Count) {
+        throw 'Source installation metadata is incomplete; refusing to invent edition/language fields.'
     }
+    $repairPaths = [ordered]@{
+        Edition = 'WINDOWS/EDITIONID'
+        InstallationType = 'WINDOWS/INSTALLATIONTYPE'
+        ProductType = 'WINDOWS/PRODUCTTYPE'
+        ProductSuite = 'WINDOWS/PRODUCTSUITE'
+        DefaultLanguage = 'WINDOWS/LANGUAGES/DEFAULT'
+    }
+    $repairs = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($field in 'Edition', 'Flags', 'Architecture', 'InstallationType', 'ProductType', 'ProductSuite', 'DefaultLanguage', 'Version') {
+        if (-not $Expected.$field) { continue }
+        if ($actual[0].$field -ine $Expected.$field) {
+            if ($RepairMissing -and -not $actual[0].$field -and $repairPaths.Contains($field)) {
+                $repairs.Add("--image-property=$($repairPaths[$field])=$($Expected.$field)")
+            } else {
+                throw "Installation metadata $field changed from '$($Expected.$field)' to '$($actual[0].$field)'. Refusing ISO creation."
+            }
+        }
+    }
+    $actualLanguages = @($actual[0].Languages | Sort-Object -Unique)
+    if (($expectedLanguages -join ',') -ine ($actualLanguages -join ',')) {
+        if ($RepairMissing -and -not $actualLanguages.Count) {
+            # Preserve the source order, including multilingual images. The
+            # wimlib indexed XML properties must be added in sequential order.
+            $i = 0
+            foreach ($language in $Expected.Languages) {
+                $i++; $repairs.Add("--image-property=WINDOWS/LANGUAGES/LANGUAGE[$i]=$language")
+            }
+        } else { throw 'Installation language metadata changed or is missing. Refusing ISO creation.' }
+    }
+    if ($actual[0].Language -and $actual[0].Language -ine $Expected.Language -and
+        -not ($RepairMissing -and -not $actual[0].DefaultLanguage -and $Expected.DefaultLanguage)) {
+        throw 'Default installation language changed; refusing ISO creation.'
+    }
+    if ($repairs.Count) {
+        Write-Host "Restoring $($repairs.Count) missing installation metadata field(s) from the source image..."
+        $wimlib = Initialize-Wimlib
+        $rc = Invoke-Native -FilePath $wimlib -ArgumentList (@('info', $ImagePath, '1', '--check') + $repairs.ToArray())
+        if ($rc -ne 0) { throw "Installation metadata repair failed (wimlib exit $rc); refusing ISO creation." }
+        # Re-read the saved container and run the strict guard again. A warning
+        # cannot turn an incomplete repair into a successful build.
+        Assert-InstallImageMetadata -ImagePath $ImagePath -Expected $Expected
+        return
+    }
+    foreach ($field in 'Edition', 'Architecture', 'Language') {
+        if (-not $actual[0].$field) { throw "Installation metadata is missing $field. See docs/BUILD_BUG_REPORT.md (upstream #583)." }
+    }
+    if ($actual[0].Language -ine $Expected.Language) { throw 'Default installation language changed; refusing ISO creation.' }
     Write-Host "Verified final edition/language metadata: $($actual[0].Edition), $($actual[0].Language), $($actual[0].Version)."
 }
 function Select-ImageIndex {
@@ -2950,7 +3029,7 @@ function Invoke-BootImageStage {
         if ($wimlib) { return Invoke-BootImageFilePatch -BootWim $bootWim -Wimlib $wimlib }
     }
     $bootIndex = Get-BootWimIndex -BootWimPath $bootWim
-    $mountDir = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
+    $mountDir = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot -MountName scratchdir_boot
     Mount-WindowsImage -ImagePath $bootWim -Index $bootIndex -Path $mountDir | Out-Null
     Assert-MountedImage -MountPath $mountDir
     Mount-OfflineHives -MountPath $mountDir

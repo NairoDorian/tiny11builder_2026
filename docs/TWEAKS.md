@@ -174,7 +174,7 @@ Opt out of telemetry in bundled runtimes (.NET CLI, PowerShell 7).
 Copilot, Recall, Click to Do, Settings agent and in-app generative AI (Paint, Notepad, Edge) off.
 
 - **When:** `RemoveAI`
-- **Note:** Recall/Click to Do policies only matter on Copilot+ PCs; they are harmless elsewhere. Edge policies apply only if Edge is later reinstalled.
+- **Note:** Recall/Click to Do policies only matter on Copilot+ PCs; they are harmless elsewhere. Edge policies apply only if Edge is retained or later reinstalled; the history/API/theme policies do not apply to Microsoft-account profiles. Paint uses the documented CurrentVersion\Policies\Paint path, not the Policies\Microsoft\Paint path proposed in PR #622.
 
 | Key | Value | Type | Data |
 |---|---|---|---|
@@ -200,6 +200,9 @@ Copilot, Recall, Click to Do, Settings agent and in-app generative AI (Paint, No
 | `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `Microsoft365CopilotChatIconEnabled` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `ComposeInlineEnabled` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `GenAILocalFoundationalModelSettings` | REG_DWORD | `1` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `EdgeHistoryAISearchEnabled` | REG_DWORD | `0` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `BuiltInAIAPIsEnabled` | REG_DWORD | `0` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `AIGenThemesEnabled` | REG_DWORD | `0` |
 
 Services (start type: 2 automatic, 3 manual, 4 disabled; skipped if absent):
 

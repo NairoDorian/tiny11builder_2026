@@ -1,0 +1,18 @@
+﻿[
+    {
+        "Path":  "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\tiny11maker.ps1",
+        "Hash":  "B74CF4B8BBDCBD87C0F9A60FF290FAAE631E60722FAA25FC6E4C0A659B9D7077"
+    },
+    {
+        "Path":  "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\lib\\tiny11utils.psm1",
+        "Hash":  "C9C1CD6BF29552B0BDCD320F3F4D255A37312EE8D4A7B09B86B195C7F822A296"
+    },
+    {
+        "Path":  "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\lib\\tiny11media.psm1",
+        "Hash":  "49D9BA30C2168A25E2B2A2A78CA9A2924D176397EEBCB9E6D904E18F16AF0697"
+    },
+    {
+        "Path":  "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\data\\tweaks.psd1",
+        "Hash":  "ED18D947B10D021F7B27A9D41CD67AAFC4D4D2D580EAE8F75D7EB44E85CBF0DD"
+    }
+]

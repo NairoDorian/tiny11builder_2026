@@ -496,11 +496,110 @@ CheckThrows 'missing image SOFTWARE is still rejected' { Assert-MountedImage -Mo
 Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
 Remove-Variable -Name T11Test -Scope Global
 
+Section 'Isolated mount folders and bounded cleanup'
+$mountWork = Join-Path $repo ('logs\mount-test-' + [guid]::NewGuid().ToString('N'))
+$global:T11Test = @{ Mounted=@(); QueryFails=$false; DiscardFails=$false; Busy=0; Removes=0; Redirect=$false; Dismounts=@(); BootPath='' }
+$module = Get-Module tiny11utils
+& $module {
+    function script:Get-WindowsImage {
+        param([switch]$Mounted, $ErrorAction)
+        if ($global:T11Test.QueryFails) { throw 'Mount state unavailable.' }
+        $global:T11Test.Mounted
+    }
+    function script:Invoke-SafeDismountImage {
+        param($Path, [switch]$Save)
+        $global:T11Test.Dismounts += $Path
+        if ($global:T11Test.DiscardFails) { return $false }
+        $global:T11Test.Mounted = @(); return $true
+    }
+    function script:Remove-Item {
+        param($LiteralPath, [switch]$Recurse, [switch]$Force, $ErrorAction)
+        $global:T11Test.Removes++
+        if ($global:T11Test.Busy -gt 0) { $global:T11Test.Busy--; throw 'Directory briefly busy.' }
+        Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
+    }
+    function script:Start-Sleep { param($Milliseconds) }
+    function script:Get-Item {
+        param($LiteralPath, [switch]$Force)
+        if ($global:T11Test.Redirect) { return [pscustomobject]@{ Attributes=[IO.FileAttributes]::ReparsePoint } }
+        Microsoft.PowerShell.Management\Get-Item @PSBoundParameters
+    }
+    function script:Invoke-SafeOfflineRegistryUnload { }
+    function script:Clear-FileReadOnly { param($FilePath) }
+    function script:Get-BootWimIndex { param($BootWimPath) return 2 }
+    function script:Mount-WindowsImage { param($ImagePath, $Index, $Path) $global:T11Test.BootPath=$Path }
+    function script:Assert-MountedImage { param($MountPath) }
+    function script:Mount-OfflineHives { param($MountPath) }
+    function script:Invoke-TweakCatalog { param($Only) [pscustomobject]@{ Failures=0 } }
+    function script:Dismount-OfflineHives { }
+    function script:Add-ImageDrivers { param($MountPath, $DriverPath) return 1 }
+} | Out-Null
+try {
+    $installMount = Initialize-ScratchWorkspace -ScratchRoot $mountWork
+    $installMarker = Join-Path $installMount 'install-marker.txt'
+    [IO.File]::WriteAllText($installMarker, 'Retain install folder during Setup servicing.')
+    $bootMount = Initialize-ScratchWorkspace -ScratchRoot $mountWork -MountName scratchdir_boot
+    Check 'Setup mount has its own directory' ($bootMount -ne $installMount -and (Test-Path -LiteralPath $installMarker))
+    $null = Invoke-BootImageStage -WorkRoot (Join-Path $mountWork 'tiny11') -ScratchRoot $mountWork -DriverPath 'fixture-drivers'
+    Check 'driver-enabled Setup stage uses isolated boot mount' ($global:T11Test.BootPath -eq $bootMount -and (Test-Path -LiteralPath $installMarker))
+    $global:T11Test.Busy=1; $beforeRemoves=$global:T11Test.Removes
+    Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName scratchdir_boot
+    Check 'briefly busy cleanup succeeds on bounded retry' ($global:T11Test.Removes -eq ($beforeRemoves+2) -and -not (Test-Path -LiteralPath $bootMount))
+    $null=Initialize-ScratchWorkspace -ScratchRoot $mountWork -MountName scratchdir_boot
+    $global:T11Test.Busy=3; $beforeRemoves=$global:T11Test.Removes
+    CheckThrows 'persistent busy cleanup reports failure' { Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName scratchdir_boot }
+    Check 'persistent busy cleanup stops after three attempts' ($global:T11Test.Removes -eq ($beforeRemoves+3) -and (Test-Path -LiteralPath $bootMount))
+    $global:T11Test.Mounted=@([pscustomobject]@{ Path=$bootMount }); $beforeRemoves=$global:T11Test.Removes
+    CheckThrows 'mounted directory is never recursively deleted' { Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName scratchdir_boot }
+    Check 'mounted-directory refusal happens before deletion' ($global:T11Test.Removes -eq $beforeRemoves)
+    $global:T11Test.DiscardFails=$true
+    CheckThrows 'failed leftover dismount refuses a new mount' { Initialize-ScratchWorkspace -ScratchRoot $mountWork -MountName scratchdir_boot }
+    $workFiles=Join-Path $mountWork 'tiny11'; New-Item -ItemType Directory -Path $workFiles | Out-Null
+    [IO.File]::WriteAllText((Join-Path $workFiles 'retained.wim'), 'Do not delete a mounted source.')
+    $global:T11Test.Dismounts=@()
+    Invoke-EmergencyCleanup -ScratchDisk $mountWork
+    Check 'emergency cleanup attempts both mount folders' ($global:T11Test.Dismounts -contains $installMount -and $global:T11Test.Dismounts -contains $bootMount)
+    Check 'emergency cleanup retains image files after dismount failure' (Test-Path -LiteralPath (Join-Path $workFiles 'retained.wim'))
+    $global:T11Test.DiscardFails=$false
+    $null=Initialize-ScratchWorkspace -ScratchRoot $mountWork -MountName scratchdir_boot
+    Check 'successful leftover dismount permits a fresh empty boot folder' (@(Get-ChildItem -LiteralPath $bootMount -Force).Count -eq 0)
+    $global:T11Test.QueryFails=$true; $beforeRemoves=$global:T11Test.Removes
+    CheckThrows 'unknown mount state blocks cleanup' { Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName scratchdir_boot }
+    Check 'unknown mount state never deletes files' ($global:T11Test.Removes -eq $beforeRemoves)
+    $global:T11Test.QueryFails=$false; $global:T11Test.Redirect=$true
+    CheckThrows 'redirected mount directory is refused' { Initialize-ScratchWorkspace -ScratchRoot $mountWork -MountName scratchdir_boot }
+    CheckThrows 'redirected mount cleanup is refused' { Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName scratchdir_boot }
+    $global:T11Test.Redirect=$false
+    CheckThrows 'unexpected mount-folder names are refused' { Remove-ScratchMountDirectory -ScratchRoot $mountWork -MountName '..' }
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+    $resolved=[IO.Path]::GetFullPath($mountWork)
+    if (-not $resolved.StartsWith([IO.Path]::GetFullPath((Join-Path $repo 'logs'))+'\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe mount-fixture cleanup.' }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+}
+
+Section 'AI policy scope and retained app choices'
+$aiGroup = @(Get-TweakCatalog | Where-Object Id -eq 'AI')[0]
+Check 'AI policies remain controlled by RemoveAI' ($aiGroup.When -eq 'RemoveAI')
+foreach ($name in 'EdgeHistoryAISearchEnabled','BuiltInAIAPIsEnabled','AIGenThemesEnabled') {
+    Check "$name uses the documented policy path" ($aiGroup.Set -contains "HKLM\zSOFTWARE\Policies\Microsoft\Edge|$name|REG_DWORD|0")
+}
+Check 'Paint retains its documented policy path' ($aiGroup.Set -contains 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint|DisableCocreator|REG_DWORD|1')
+Check 'PR review does not force removal of Photos' ((Resolve-OptionalUtilities -Keep Photos).KeptNames -contains 'Photos')
+$withoutAI=(Resolve-BuildPreset Default).Clone(); $withoutAI.RemoveAI=$false
+Check 'AI policies are excluded when opted out' (@(Get-TweakPlan -Flags $withoutAI | Where-Object Id -eq 'AI').Count -eq 0)
+
 Section 'Final installation metadata guard'
 $expectedMetadata = [pscustomobject]@{ Edition='Professional'; Flags='Professional'; Architecture='amd64'; InstallationType='Client'; ProductType='WinNT'; ProductSuite='Terminal Server'; Language='en-US'; DefaultLanguage='en-US'; Languages=@('en-US'); Version='10.0.26300.9457' }
 $global:T11Test = @{ Images = @($expectedMetadata.PSObject.Copy()) }
 $module = Get-Module tiny11utils
-& $module { function script:Get-InstallImageMetadata { param($ImagePath, $Index) $global:T11Test.Images } } | Out-Null
+& $module {
+    function script:Get-InstallImageMetadata { param($ImagePath, $Index) $global:T11Test.Images }
+    function script:Initialize-Wimlib { 'fixture-wimlib.exe' }
+    function script:Invoke-Native { param($FilePath, $ArgumentList) $global:T11Test.Writes++; $global:T11Test.ExitCode }
+} | Out-Null
+$global:T11Test.Writes=0; $global:T11Test.ExitCode=0
 try {
     $accepted = $true
     try { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata } catch { $accepted = $false }
@@ -514,6 +613,19 @@ try {
     CheckThrows 'changed language set refuses ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata }
     $global:T11Test.Images = @($expectedMetadata, $expectedMetadata)
     CheckThrows 'multiple final editions refuse ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata }
+    $altered=$expectedMetadata.PSObject.Copy(); $altered.Edition=''; $global:T11Test.Images=@($altered)
+    $global:T11Test.ExitCode=1
+    CheckThrows 'native metadata repair failure refuses ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata -RepairMissing }
+    $global:T11Test.ExitCode=0
+    CheckThrows 'incomplete repair readback refuses ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata -RepairMissing }
+    $beforeWrites=$global:T11Test.Writes
+    $altered.ProductType='Unexpected'; $global:T11Test.Images=@($altered)
+    CheckThrows 'conflicting product type blocks missing-edition repair' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata -RepairMissing }
+    Check 'conflicts fail before a native metadata write' ($global:T11Test.Writes -eq $beforeWrites)
+    $altered=$expectedMetadata.PSObject.Copy(); $altered.Edition=''; $altered.DefaultLanguage='fr-FR'; $altered.Language='fr-FR'; $global:T11Test.Images=@($altered)
+    $sourceWithoutDefault=$expectedMetadata.PSObject.Copy(); $sourceWithoutDefault.DefaultLanguage=''
+    CheckThrows 'unknown source default cannot hide a language conflict' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $sourceWithoutDefault -RepairMissing }
+    Check 'language conflict fails before a native metadata write' ($global:T11Test.Writes -eq $beforeWrites)
 } finally {
     Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
     Remove-Variable -Name T11Test -Scope Global
@@ -881,6 +993,7 @@ foreach ($s in 'tiny11maker.ps1', 'tiny11Coremaker.ps1') {
     # 2>$null / 2>&1 on a native tool throws under EAP=Stop in PS 5.1: use Invoke-Native.
     Check "$s : no native stderr redirection" ($text -notmatch '(?m)^\s*&\s+\S+.*\s2>(\$null|&1)')
     Check "$s : no reg query before hives load" ($text -notmatch 'reg query')
+    Check "$s : verify mount folders before deleting source files" ($text.IndexOf('Remove-ScratchMountDirectory -ScratchRoot') -lt $text.IndexOf('Remove-Item -LiteralPath $workRoot'))
 }
 $manifest = Read-PowerShellDataFile (Join-Path $repo 'lib\tiny11utils.psd1')
 $defined = @((Get-Command -Module tiny11utils).Name)

@@ -475,7 +475,7 @@ if (-not (Invoke-SafeDismountImage -Path $mountDir -Save)) {
     throw "Failed to commit/unmount the install image."
 }
 $null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile -CompressionEngine $CompressionEngine -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
-Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata
+Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata -RepairMissing
 
 #---------[ boot.wim, answer file, ISO ]---------#
 $Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
@@ -495,8 +495,10 @@ $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
 
 #---------[ Cleanup & summary ]---------#
 Write-Host "Cleaning up work folders..."
-Remove-Item -Path $workRoot -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $mountDir -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($mountName in 'scratchdir', 'scratchdir_boot') {
+    Remove-ScratchMountDirectory -ScratchRoot $ScratchRoot -MountName $mountName
+}
+Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue
 if ($Script:defenderExclusions) { Remove-BuildDefenderExclusion -Path $Script:defenderExclusions }
 
 Format-BuildSummary -Elapsed ((Get-Date) - $buildStart) -IsoBytes $isoBytes -IsoPath $OutputIso `

@@ -97,6 +97,7 @@
         'Remove-OfflineScheduledTask',
         'Remove-OneDriveFiles',
         'Remove-RegistryValue',
+        'Remove-ScratchMountDirectory',
         'Resolve-AppxRemovalList',
         'Resolve-Architecture',
         'Resolve-BuildPreset',

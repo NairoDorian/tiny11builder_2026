@@ -1,0 +1,21 @@
+{
+  "Checked": "2026-10-04T20:03:49.689055+02:00",
+  "PowerShell7UnitChecks": 1865,
+  "PowerShell51UnitChecks": 1863,
+  "UnitFailures": 0,
+  "RealWimEsdChecksPerShell": 129,
+  "MediaProgressChecksPerShell": 23,
+  "ParseAndCommandResolution": "passed",
+  "GeneratedFiles": "current",
+  "PSScriptAnalyzer": "passed",
+  "GitWhitespace": "passed",
+  "NewFullBuildForPrAdaptations": false,
+  "VmInstallationTest": false,
+  "PreviouslyRecordedMaximumIso": "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\tiny11-26300-maximum-20261004-190253.iso",
+  "PreviouslyRecordedMaximumIsoExists": false,
+  "OutputAvailability": "Absent at follow-up read-only path check; user asked whether moved/deleted. Earlier benchmark summaries retained as historical evidence.",
+  "SourceIsoExists": true,
+  "TemporaryRootExists": false,
+  "TestArtifactsRemoved": true,
+  "ProjectBytesBeforeCommit": 72558967.0
+}

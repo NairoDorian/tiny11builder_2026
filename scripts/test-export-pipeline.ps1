@@ -41,11 +41,27 @@ try {
     [IO.File]::WriteAllText((Join-Path $second 'edition.txt'),'Second edition')
     [void](New-Item -ItemType HardLink -Path (Join-Path $second 'linked.txt') -Target (Join-Path $second 'edition.txt'))
     Set-Content -LiteralPath (Join-Path $second 'edition.txt') -Stream 'extra' -Value 'Alternate stream preserved'
+    # Multi-language metadata with a non-first default catches hardcoding.
+    $metadataOptions = @(
+        '--image-property=FLAGS=Professional'
+        '--image-property=WINDOWS/ARCH=9'
+        '--image-property=WINDOWS/EDITIONID=Professional'
+        '--image-property=WINDOWS/INSTALLATIONTYPE=Client'
+        '--image-property=WINDOWS/PRODUCTTYPE=WinNT'
+        '--image-property=WINDOWS/PRODUCTSUITE=Terminal Server'
+        '--image-property=WINDOWS/LANGUAGES/LANGUAGE[1]=en-US'
+        '--image-property=WINDOWS/LANGUAGES/LANGUAGE[2]=fr-FR'
+        '--image-property=WINDOWS/LANGUAGES/DEFAULT=fr-FR'
+        '--image-property=WINDOWS/VERSION/MAJOR=10'
+        '--image-property=WINDOWS/VERSION/MINOR=0'
+        '--image-property=WINDOWS/VERSION/BUILD=26300'
+        '--image-property=WINDOWS/VERSION/SPBUILD=9457'
+    )
     foreach($compression in 'LZX','XPRESS','LZMS') {
         $source=Join-Path $work "source-$compression.wim"
         $options=if($compression -eq 'LZMS') {@('--solid','--solid-compress=LZMS:100')} else {@("--compress=$compression")}
-        Run-Wim (@('capture',$first,$source,'First','--check')+$options)
-        Run-Wim @('append',$second,$source,'Second','--check')
+        Run-Wim (@('capture',$first,$source,'First','--check')+$options+$metadataOptions)
+        Run-Wim (@('append',$second,$source,'Second','--check')+$metadataOptions)
         $sourceHash=Get-Sha256 $source
         $destination=Join-Path $work "selected-$compression.wim"
         Export-SelectedInstallImage -Source $source -Index 2 -Destination $destination -CompressionEngine Wimlib 6>$null
@@ -72,6 +88,39 @@ try {
         $logicalAfter=Get-LogicalWimRecords $final
         Assert ($logicalBefore -eq $logicalAfter) 'Final maximum compression preserves data, ADS, permissions, timestamps, attributes and hard-link membership.'
         Run-Wim @('verify',$final)
+        $expectedMetadata = Get-InstallImageMetadata -ImagePath $source -Index 2
+        foreach ($imagePath in $destination, $final) {
+            $beforeHash = Get-Sha256 $imagePath
+            Assert-InstallImageMetadata -ImagePath $imagePath -Expected $expectedMetadata -RepairMissing
+            Assert ((Get-Sha256 $imagePath) -eq $beforeHash) 'Matching metadata is a read-only no-op.'
+            $beforeRecords = Get-LogicalWimRecords $imagePath
+            Run-Wim @('info', $imagePath, '1', '--check',
+                '--image-property=WINDOWS/EDITIONID=', '--image-property=WINDOWS/INSTALLATIONTYPE=',
+                '--image-property=WINDOWS/PRODUCTTYPE=', '--image-property=WINDOWS/PRODUCTSUITE=',
+                '--image-property=WINDOWS/LANGUAGES=')
+            $lost = Get-InstallImageMetadata -ImagePath $imagePath -Index 1
+            Assert (-not $lost.Edition -and -not $lost.Languages.Count -and $lost.Flags -eq 'Professional') 'Fixture reproduces #583: FLAGS survives but Setup fields disappear.'
+            $threw = $false
+            try { Assert-InstallImageMetadata -ImagePath $imagePath -Expected $expectedMetadata } catch { $threw = $true }
+            Assert $threw 'Strict guard rejects lost metadata before repair.'
+            Assert-InstallImageMetadata -ImagePath $imagePath -Expected $expectedMetadata -RepairMissing
+            $restored = Get-InstallImageMetadata -ImagePath $imagePath -Index 1
+            Assert ($restored.DefaultLanguage -eq 'fr-FR' -and ($restored.Languages -join ',') -eq 'en-US,fr-FR') 'Repair preserves multilingual order and non-first default language.'
+            Assert ((Get-LogicalWimRecords $imagePath) -eq $beforeRecords) 'Repair preserves payloads, ADS, ACLs, timestamps and hard-link membership.'
+            $stream=[IO.File]::OpenRead($imagePath)
+            try {
+                $reader=New-Object IO.BinaryReader($stream); $header=$reader.ReadBytes(208)
+                Assert (([BitConverter]::ToUInt64($header,124) -band 0x00ffffffffffffffL) -gt 0) 'Repair retains an integrity table.'
+            } finally { $stream.Dispose() }
+            Run-Wim @('info', $imagePath, '1', '--check', '--image-property=WINDOWS/LANGUAGES/DEFAULT=')
+            Assert-InstallImageMetadata -ImagePath $imagePath -Expected $expectedMetadata -RepairMissing
+            Assert ((Get-InstallImageMetadata -ImagePath $imagePath -Index 1).DefaultLanguage -eq 'fr-FR') 'Missing default is restored without replacing it with the first language.'
+            Run-Wim @('verify', $imagePath)
+            Run-Wim @('info', $imagePath, '1', '--check', '--image-property=WINDOWS/EDITIONID=Core')
+            $badHash = Get-Sha256 $imagePath; $threw = $false
+            try { Assert-InstallImageMetadata -ImagePath $imagePath -Expected $expectedMetadata -RepairMissing } catch { $threw = $true }
+            Assert ($threw -and (Get-Sha256 $imagePath) -eq $badHash) 'Conflicting edition fails without modifying the image.'
+        }
         $threw=$false
         try { Export-SelectedInstallImage -Source $source -Index 2 -Destination $destination -CompressionEngine Wimlib } catch { $threw=$true }
         Assert $threw 'Never append to or overwrite an earlier export.'

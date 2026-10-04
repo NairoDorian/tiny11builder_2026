@@ -28,7 +28,71 @@ removal and commit mutate shared image state. A newer dependency cannot make
 those operations safely concurrent. No host exclusions/priority changes are
 needed for the optimizations above.
 
-## Measurements on the user's Windows 26300.9457 media
+## Two fresh complete builds
+
+Measured sequentially from the original 9,047,330,816-byte ISO, Pro index 6,
+with the same saved GUI preset and code (`7aa45d5`). Each used a new work folder;
+no previously patched image or application cache was consumed. Kept utilities:
+Terminal, Calculator, Notepad and Photos. The requested fastest uncompressed
+configuration also skips component cleanup, so this compares two complete
+configurations rather than compression alone.
+
+| Configuration | Complete build | Final ISO | Install image |
+|---|---:|---:|---:|
+| `-Compress none -Fast` (cleanup skipped) | 9 min 18 sec | 14.75 GB / 13.73 GiB | 13,865,993,139-byte uncompressed WIM |
+| `-Compress maximum` (normal cleanup) | 21 min 6 sec | 6.23 GB / 5.80 GiB | 5,349,305,984-byte solid LZMS ESD |
+
+Maximum compression saves **57.8% of ISO bytes** at an extra **11 min 48 sec**.
+GB here means decimal bytes/1,000,000,000; GiB means bytes/1,073,741,824.
+The 14.75 GB output is expected: an uncompressed 13.87 GB install image plus
+about 0.88 GB of Setup/media files. The original ISO stores compressed resources
+shared by 11 editions; comparing it to a one-edition uncompressed output is not
+a valid test of whether patching worked.
+
+| Timed stage | None / skipped cleanup | Maximum / normal cleanup |
+|---|---:|---:|
+| Edition export from original ISO | 30.9 s | 26.5 s |
+| Install image mount | 75.6 s | 66.1 s |
+| Provisioned apps | 90.8 s | 82.6 s |
+| Capabilities | 63.4 s | 60.4 s |
+| Registry and task changes | 11.2 s | 9.8 s |
+| Component cleanup | skipped | 14.2 s |
+| Commit/unmount | 117.4 s | 112.3 s |
+| Final compression/export | 69.4 s | **838.8 s (13 min 59 sec)** |
+| Setup image patch | 2.8 s | 3.7 s |
+| ISO writing and checksum | 60.0 s | 18.2 s |
+
+Final compression consumed roughly 66% of the maximum build's total elapsed
+time. It compresses the patched Windows installation image, not the whole ISO.
+Mount, removal and commit still take several minutes even without it. The
+compressor used all 12 logical CPUs exposed by this Windows installation. No
+host priority, Defender, CPU topology or settings were changed. The finer
+compression timer was 838.1 s; the stage timer includes its surrounding work.
+
+Each timing runs from runner preflight through builder checksum/work cleanup;
+independent finished-ISO inspection is additional QA outside that interval.
+Both outputs passed complete image integrity/data verification, one-image
+metadata checks, all 29 removed app-family absence checks, kept-app presence,
+targeted Edge/OneDrive path absence and three saved hive DWORD readbacks. Neither
+has been installed/booted in a VM. Results are one sample each; Windows filesystem
+caches were not reset, and no general 2x full-build speedup is claimed. Earlier
+20–40 minute builds remain plausible with CPU/storage/load and export-engine
+variation. The operation improvements below avoid unnecessary export/Setup
+work; there is no measured old-repository full-run baseline on this ISO.
+
+See [machine-readable comparison](verification/2026-10-04/benchmark-comparison.json),
+[hardware](verification/2026-10-04/benchmark-hardware.json), and the independent
+[none](verification/2026-10-04/none-inspection.json) / [maximum](verification/2026-10-04/maximum-inspection.json)
+inspection summaries. The maximum ISO and its sidecars were retained outside
+the repository at `C:\Users\Z\Downloads\PROJECTS\ISOs\tiny11-26300-maximum-20261004-190253.iso`.
+A follow-up path check at 20:01 CEST found that this recorded final ISO is now
+absent. The user was asked whether it was moved/deleted; the source and saved
+verification summaries remain. This report records historical measurements,
+not a currently downloadable output. See [follow-up status](verification/2026-10-04/post-review-verification.json).
+`C:\.temp`, other generated images, raw logs and task-created development caches
+were removed on the user's request. Saved JSON evidence remains in Git.
+
+## Earlier checkpoint measurements
 
 | Operation | Measured result |
 |---|---|
@@ -38,10 +102,9 @@ needed for the optimizations above.
 | Final maximum solid LZMS export | 854.1 seconds (14 min 14 sec), 12 threads; 5,348,371,930-byte ESD |
 | Finished ISO | 6,248,947,712 bytes; image data integrity passed |
 
-These are operation timings, not a controlled old/new full-build comparison.
-Filesystem caching and machine load affect them. The finished ISO came from
-the earlier committed checkpoint plus file-only repairs; no fresh end-to-end
-revised builder run or VM install/boot test has been performed.
+These earlier operation timings used the committed checkpoint plus file-only repairs.
+The complete fresh measurements above supersede their verification limitation.
+The checkpoint and old output were deleted during the authorized cleanup.
 
 Overall GUI percentages use stage weights and total ETA is explicitly rough.
 Native percentages/counts measure the current step. Step ETA needs several

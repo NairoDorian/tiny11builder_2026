@@ -1,0 +1,80 @@
+[
+  {
+    "Reviewed": "2026-10-04",
+    "Number": 623,
+    "Title": "Fix: Prevent mount conflicts and improve script stability with isolated scratch directories",
+    "Url": "https://github.com/ntdevlabs/tiny11builder/pull/623",
+    "State": "open",
+    "Merged": false,
+    "UpstreamUpdated": "2026-07-16T06:46:27Z",
+    "Files": [
+      {
+        "filename": "README.md",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1
+      },
+      {
+        "filename": "tiny11maker.ps1",
+        "status": "modified",
+        "additions": 66,
+        "deletions": 81
+      }
+    ],
+    "Decision": "Separate driver-enabled boot mount; guarded PowerShell cleanup with bounded retries; preserve source files after failed/unknown dismount. No cmd deletion fallback or new global cleanup."
+  },
+  {
+    "Reviewed": "2026-10-04",
+    "Number": 628,
+    "Title": "Restore image edition metadata lost during export (fixes #583)",
+    "Url": "https://github.com/ntdevlabs/tiny11builder/pull/628",
+    "State": "open",
+    "Merged": false,
+    "UpstreamUpdated": "2026-08-19T18:03:26Z",
+    "Files": [
+      {
+        "filename": "tiny11maker.ps1",
+        "status": "modified",
+        "additions": 115,
+        "deletions": 0
+      }
+    ],
+    "Decision": "Restore missing Setup fields from actual source using wimlib info --image-property and --check; reject conflicts; retain integrity and compression. No raw header rewrite."
+  },
+  {
+    "Reviewed": "2026-10-04",
+    "Number": 622,
+    "Title": "Disable AI Features and Improvements",
+    "Url": "https://github.com/ntdevlabs/tiny11builder/pull/622",
+    "State": "open",
+    "Merged": false,
+    "UpstreamUpdated": "2026-07-09T16:21:02Z",
+    "Files": [
+      {
+        "filename": "README.md",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "filename": "autounattend.xml",
+        "status": "modified",
+        "additions": 5,
+        "deletions": 0
+      },
+      {
+        "filename": "tiny11Coremaker.ps1",
+        "status": "modified",
+        "additions": 46,
+        "deletions": 3
+      },
+      {
+        "filename": "tiny11maker.ps1",
+        "status": "modified",
+        "additions": 48,
+        "deletions": 3
+      }
+    ],
+    "Decision": "Add three documented Edge AI policies under existing RemoveAI choice. Keep existing documented Paint path, Photos choice, telemetry/Widgets controls and generated OOBE behavior."
+  }
+]

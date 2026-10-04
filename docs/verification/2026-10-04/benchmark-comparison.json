@@ -1,0 +1,72 @@
+{
+  "Measured": "2026-10-04",
+  "CodeCommit": "7aa45d5aa88e5c2bab9a9df692fe51404357c8ce",
+  "SourceIsoBytes": 9047330816,
+  "Results": [
+    {
+      "Mode": "none",
+      "Seconds": 557.8247087999999,
+      "IsoBytes": 14746617856,
+      "SkipCleanup": true,
+      "CompressionLevel": 100,
+      "CompressionThreads": 0,
+      "OutputIso": "C:\\.temp\\tiny11-26300-none-20261004-184922.iso",
+      "Stages": {
+        "copy": 0.8,
+        "edition": 30.9,
+        "mount": 75.6,
+        "apps": 90.8,
+        "capabilities": 63.4,
+        "registry": 6.4,
+        "telemetry": 4.8,
+        "commit": 117.4,
+        "compress": 69.4,
+        "boot": 2.8,
+        "iso": 37.1,
+        "hash": 22.9
+      },
+      "RunFolder": "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\logs\\manual-verification\\none-20261004-184922",
+      "InstallBytes": 13865993139,
+      "SavedImageInspection": "passed; no VM installation test"
+    },
+    {
+      "Mode": "maximum",
+      "Seconds": 1265.9466344,
+      "IsoBytes": 6229929984,
+      "SkipCleanup": false,
+      "CompressionLevel": 100,
+      "CompressionThreads": 0,
+      "OutputIso": "C:\\.temp\\tiny11-26300-maximum-20261004-190253.iso",
+      "Stages": {
+        "copy": 0.8,
+        "edition": 26.5,
+        "mount": 66.1,
+        "apps": 82.6,
+        "capabilities": 60.4,
+        "registry": 6,
+        "telemetry": 3.8,
+        "cleanup": 14.2,
+        "commit": 112.3,
+        "compress": 838.8,
+        "boot": 3.7,
+        "iso": 11.8,
+        "hash": 6.4
+      },
+      "RunFolder": "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\logs\\manual-verification\\maximum-20261004-190253",
+      "InstallBytes": 5349305984,
+      "SavedImageInspection": "passed; no VM installation test"
+    }
+  ],
+  "IsoReductionPercent": 57.75349951538067,
+  "ExtraSeconds": 708.1219256,
+  "Method": "Sequential fresh builds from the same original ISO, Pro index 6, same preset and builder code. Cleanup differs as requested. No patched checkpoint/app cache reuse. Windows filesystem caches not reset.",
+  "VmInstallation": "not tested",
+  "TimingBoundary": "Runner preflight through completed builder checksum/work-folder cleanup. Independent saved-ISO inspection is additional QA outside each timed build.",
+  "KeptFinalIso": "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\tiny11-26300-maximum-20261004-190253.iso",
+  "DisposableOutputsRemoved": [
+    "diagnostic fast ISO",
+    "uncompressed benchmark ISO",
+    "older checkpoint/output media"
+  ],
+  "OutputAvailabilityFollowUp": "2026-10-04 20:01 CEST: the previously recorded retained ISO is absent; source ISO and verification summaries remain. See post-review-verification.json."
+}

@@ -1,0 +1,213 @@
+{
+  "Iso": "C:\\.temp\\tiny11-26300-none-20261004-184922.iso",
+  "IsoBytes": 14746617856,
+  "InstallFile": "sources\\install.wim",
+  "InstallBytes": 13865993139,
+  "HeaderImageCount": 1,
+  "HeaderFlags": "80",
+  "Metadata": [
+    {
+      "Index": 1,
+      "Name": "Windows 11 Pro",
+      "Edition": "Professional",
+      "Flags": "Professional",
+      "InstallationType": "Client",
+      "ProductType": "WinNT",
+      "ProductSuite": "Terminal Server",
+      "Architecture": "amd64",
+      "Build": 26300,
+      "Version": "10.0.26300.9457",
+      "DisplayVersion": "26H2",
+      "Is24H2OrLater": true,
+      "Languages": [
+        "en-US"
+      ],
+      "Language": "en-US",
+      "DefaultLanguage": "en-US",
+      "SizeBytes": 23110349640
+    }
+  ],
+  "BiosBoot": true,
+  "UefiBoot": true,
+  "Unattend": true,
+  "ImageIntegrity": "passed",
+  "RemovedAppChecks": [
+    {
+      "Package": "Clipchamp.Clipchamp",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.BingNews",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.BingSearch",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.BingWeather",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.GamingApp",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.GetHelp",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.MicrosoftOfficeHub",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.MicrosoftSolitaireCollection",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.MicrosoftStickyNotes",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.OutlookForWindows",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.Paint",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.PowerAutomateDesktop",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.ScreenSketch",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.Todos",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.Windows.DevHome",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.WindowsAlarms",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.WindowsCamera",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.WindowsFeedbackHub",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.WindowsSoundRecorder",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.Xbox.TCUI",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.XboxGamingOverlay",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.XboxIdentityProvider",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.XboxSpeechToTextOverlay",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.YourPhone",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "Microsoft.ZuneMusic",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "MicrosoftCorporationII.QuickAssist",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "MicrosoftWindows.Client.WebExperience",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "MicrosoftWindows.CrossDevice",
+      "RemainingPaths": 0
+    },
+    {
+      "Package": "MSTeams",
+      "RemainingPaths": 0
+    }
+  ],
+  "KeptAppChecks": [
+    {
+      "Package": "Microsoft.WindowsTerminal",
+      "Paths": 269
+    },
+    {
+      "Package": "Microsoft.WindowsCalculator",
+      "Paths": 288
+    },
+    {
+      "Package": "Microsoft.WindowsNotepad",
+      "Paths": 326
+    },
+    {
+      "Package": "Microsoft.Windows.Photos",
+      "Paths": 226
+    }
+  ],
+  "RemovedFileChecks": [
+    {
+      "Path": "\\Program Files (x86)\\Microsoft\\Edge",
+      "RemainingPaths": 0
+    },
+    {
+      "Path": "\\Program Files (x86)\\Microsoft\\EdgeCore",
+      "RemainingPaths": 0
+    },
+    {
+      "Path": "\\Program Files (x86)\\Microsoft\\EdgeUpdate",
+      "RemainingPaths": 0
+    },
+    {
+      "Path": "\\Windows\\System32\\OneDriveSetup.exe",
+      "RemainingPaths": 0
+    }
+  ],
+  "RegistryChecks": [
+    {
+      "File": "SOFTWARE",
+      "Key": "Policies\\Microsoft\\Dsh",
+      "Name": "AllowNewsAndInterests",
+      "Type": 4,
+      "Value": 0
+    },
+    {
+      "File": "SOFTWARE",
+      "Key": "Policies\\Microsoft\\Windows\\Windows Feeds",
+      "Name": "EnableFeeds",
+      "Type": 4,
+      "Value": 0
+    },
+    {
+      "File": "NTUSER.DAT",
+      "Key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "Name": "TaskbarDa",
+      "Type": 4,
+      "Value": 0
+    }
+  ],
+  "Verified": "2026-10-04T19:05:04.5343352+02:00",
+  "VmInstallation": "not tested"
+}

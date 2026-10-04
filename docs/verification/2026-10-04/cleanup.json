@@ -1,0 +1,33 @@
+{
+  "Started": "2026-10-04T19:34:44.6747414+02:00",
+  "Removed": [
+    "C:\\.temp\\preserved-tiny11",
+    "C:\\.temp\\probe-21356",
+    "C:\\.temp\\probe-28344",
+    "C:\\.temp\\probe-28540",
+    "C:\\.temp\\work-fast-20261004-183340",
+    "C:\\.temp\\work-none-20261004-184922",
+    "C:\\.temp\\work-maximum-20261004-190253",
+    "C:\\.temp\\tiny11-26300-fast-20261004-183340.iso",
+    "C:\\.temp\\tiny11-26300-fast-20261004-183340.iso.json",
+    "C:\\.temp\\tiny11-26300-fast-20261004-183340.iso.sha256",
+    "C:\\.temp\\tiny11-26300-none-20261004-184922.iso",
+    "C:\\.temp\\tiny11-26300-none-20261004-184922.iso.json",
+    "C:\\.temp\\tiny11-26300-none-20261004-184922.iso.sha256",
+    "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\artifacts",
+    "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\logs",
+    "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\tools\\PSScriptAnalyzer",
+    "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\tools\\discutils"
+  ],
+  "KeptFinalIso": "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\tiny11-26300-maximum-20261004-190253.iso",
+  "SourceIsoPreserved": true,
+  "KeptFinalBytes": 6229929984,
+  "FinalSha256": "2b1cced1fe91288292b054416f9ce230168ba71eee1849290606b973c1f56808",
+  "TemporaryRootRemoved": true,
+  "RemainingMounts": 0,
+  "Completed": "2026-10-04T19:34:57.7074415+02:00",
+  "Success": true,
+  "ProjectBytesAfter": 72521605.0,
+  "ProjectFilesAfter": 997,
+  "CleanupPolicy": "Removed only task-created build/probe files and generated project outputs/caches. Kept source, tracked code/docs, bundled runtime libraries, pinned wimlib runtime and existing reference repositories."
+}

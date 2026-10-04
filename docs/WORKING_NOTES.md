@@ -13,7 +13,33 @@ The earlier verification attempt reached a committed, unmounted install image at
 
 Earlier tests created temporary scheduled tasks and loaded disposable offline hives before the host read-only restriction was stated. Do not create host scheduled tasks or repeat host-setting diagnostics. Normal temporary attachments of offline image hives during an authorized ISO build are permitted, as clarified below. Remove only outstanding test artifacts created by this task if needed to restore the previous host state, and report that cleanup explicitly.
 
-## Current verification and subsequent requests
+## Latest state: completed fresh builds, cleanup and PR adaptations
+
+- Two sequential fresh builds from the original ISO at commit `7aa45d5` passed:
+  none/skipped cleanup 557.8 s, 14,746,617,856 bytes; maximum/normal cleanup
+  1265.9 s, 6,229,929,984 bytes. Same preset/patch choices and code; no earlier
+  patched data reused. Independent saved-image checks passed for both; no VM
+  install/boot test. See PERFORMANCE.md and verification/2026-10-04.
+- The maximum ISO was recorded as retained outside the repository:
+  `C:\Users\Z\Downloads\PROJECTS\ISOs\tiny11-26300-maximum-20261004-190253.iso`.
+  SHA-256: `2b1cced1fe91288292b054416f9ce230168ba71eee1849290606b973c1f56808`.
+- Follow-up at 20:01 CEST: that recorded final ISO and sidecars are absent.
+  Source ISO still exists. User asked whether they moved/deleted it; cause is
+  not established. Do not promise a downloadable ISO from the historical path.
+- User explicitly requested deletion: `C:\.temp`, old checkpoint, other outputs,
+  repository artifacts/raw logs and task-created development caches are gone.
+  Only compact evidence, source code/dependencies and existing reference clones
+  remain (~72.5 MB). Do not rely on historical raw-log/checkpoint paths below.
+- Latest request: adapt upstream PRs 623, 628 and 622. See UPSTREAM_PR_REVIEW.md:
+  isolate driver-enabled Setup mount, bounded guarded deletion, preserve files
+  on failed dismount, restore only missing source-derived Setup metadata with
+  supported wimlib XML operations, and add three documented optional AI policies.
+  These adaptations postdate the retained ISO and are fixture/regression tested.
+- Commit/push is authorized, and branch main/remote upstream ownership was verified
+  as NairoDorian/tiny11builder_2026. The previous improvement commit is pushed.
+  Never repeat benchmarks against old data or overlap servicing processes.
+
+## Historical checkpoint verification and subsequent requests
 
 - The final ISO `artifacts/tiny11-26300-verified.iso` was completed from the
   earlier committed checkpoint using file-only repairs and exports. It is
@@ -22,7 +48,7 @@ Earlier tests created temporary scheduled tasks and loaded disposable offline hi
   Maximum solid LZMS export took 854.1 seconds. Full image integrity passed.
 - Independently extracted SOFTWARE and Default NTUSER from the final ESD and
   confirmed AllowNewsAndInterests, EnableFeeds and TaskbarDa are DWORD zero.
-  Original checkpoint and source ISO remain preserved.
+  At that time the checkpoint and source were preserved; the checkpoint was later deleted on user request.
 - Earlier diagnostic scheduled tasks/hive mounts were cleaned up. New tests
   use project files and offline file APIs; do not repeat those host diagnostics.
 - This is not a fresh end-to-end revised builder run, and no VM boot/install
@@ -61,7 +87,7 @@ Only SOFTWARE and Default NTUSER, intentionally repaired for the three denied
 DWORDs, were excluded; their saved DWORD values were independently verified.
 Physical container offsets/compressed sizes and numeric hard-link IDs were
 normalized; hard-link memberships, security, times, attributes, stream hashes
-and uncompressed sizes were compared. Reports live in logs/manual-verification.
+and uncompressed sizes were compared. Raw reports formerly lived in logs/manual-verification and were deleted during authorized cleanup; saved summaries remain under docs/verification/2026-10-04.
 
 WIM/ESD regression tests now also verify final maximum compression preserves
 alternate streams, metadata, security and actual hard-link membership. The

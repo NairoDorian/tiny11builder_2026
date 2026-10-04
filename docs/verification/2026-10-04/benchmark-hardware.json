@@ -1,0 +1,12 @@
+{
+  "CPU": {
+    "Name": "13th Gen Intel(R) Core(TM) i9-13900H",
+    "NumberOfCores": 6,
+    "NumberOfLogicalProcessors": 12
+  },
+  "Memory": {
+    "TotalPhysicalMemory": 33968476160
+  },
+  "Captured": "2026-10-04T19:05:06.0508674+02:00",
+  "Note": "Read only; no host priority/security/configuration changes"
+}

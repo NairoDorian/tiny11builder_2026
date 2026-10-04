@@ -67,6 +67,16 @@ The targeted implementation records only denied DWORD writes for the tracked off
 
 The previously completed maximum-compressed ESD was independently extracted. All three values were confirmed as DWORD zero in the saved SOFTWARE/default-user files. This checks the resulting image data, beyond merely seeing a successful command in a log. Evidence is in `logs/manual-verification`; the relevant code is in [OfflineRegistry.cs](../lib/OfflineRegistry.cs) and [tiny11utils.psm1](../lib/tiny11utils.psm1).
 
+### Other original-log failures and misleading output
+
+`Microsoft.SecHealthUI` removal failed on the newer Windows servicing model. On build 26100 and newer, removal planning now retains the protected Windows Security app and logs that choice, even when Defender-related offline preset settings are requested. Avoiding the unsupported removal is deliberate compatibility handling. The corresponding offline settings are still applied, but retaining the app is not a promise that Windows tamper protection can be overridden. The fresh runs removed all 29 **planned** apps; that count does not imply this protected package was removed.
+
+Oscdimg writes ordinary progress on stderr. The old PowerShell treatment made those lines look like `ERROR:` records despite a successful ISO operation. The native wrapper now drains stdout/stderr concurrently and streams both as ordinary progress text. Actual nonzero process exits, missing images and undersized output still fail. Successful mastering and a checksum alone remain insufficient proof of an installable image.
+
+The earlier registry-stage stall was also separate. An offline TaskCache `Id` string contained a terminating NUL; that truncated the native command before its `/f` argument, leaving `reg.exe` waiting for confirmation. The current code strips that terminator, rejects NUL in process arguments, closes native stdin and bounds registry commands to 30 seconds. Task deletion logs identify the current target. These fixes were already in the earlier commit and remain covered by the current tests. Ownership changes used for the offline TaskCache keys are limited to the mounted image's aliases, never host scheduled tasks or live TaskCache.
+
+Return values also previously contained emitted native/hive-unload text instead of only the expected numeric status/ISO size. Streaming/logging output is now separated from those return values. This explains why normal native output could produce a PowerShell conversion error after an otherwise completed image step.
+
 ## 3. Upstream compression regression: a successful but larger export
 
 [Issue #317](https://github.com/ntdevlabs/tiny11builder/issues/317) reported substantially less reduction than expected. A [specific comment](https://github.com/ntdevlabs/tiny11builder/issues/317#issuecomment-2591938012) traced it to [commit bba078c](https://github.com/ntdevlabs/tiny11builder/commit/bba078c34bd2108188a09653ea1de32edffe7a93), which replaced a DISM recovery export with PowerShell Fast compression. [PR #319](https://github.com/ntdevlabs/tiny11builder/pull/319) proposed fixes including restoring the stronger export. Its presence is not evidence that the proposed change was merged.
@@ -76,6 +86,14 @@ The previously completed maximum-compressed ESD was independently extracted. All
 WIM/ESD exports can succeed using different compression algorithms. A filename or a success message cannot prove maximum compression was used. Our user-facing default is named **maximum**. The backend's historical DISM term `recovery` is retained only where its API requires it and for compatibility with old arguments. The wimlib maximum path uses solid LZMS compression, level 100 and 64 MiB chunks. Fast uses XPRESS; balanced uses LZX; none produces an uncompressed WIM.
 
 The final compression operates on the patched Windows installation image, including its files, streams, metadata and sharing relationships. Oscdimg then packages that image alongside Setup/boot media into the ISO; it does not apply another general compression layer to the entire disc. Removing compression can greatly enlarge `install.wim` without changing which logical Windows files are present.
+
+### Why the uncompressed test is about 15 GB
+
+This is an expected result of the requested `none` setting, not evidence of duplicate images. The inspected uncompressed ISO is 14.7466 decimal GB, of which 13.8660 GB is its single uncompressed installation WIM and 0.8806 GB is the rest of the disc. The original 9.0473 GB Microsoft ISO uses compression and resource sharing, so it is not an uncompressed-size baseline.
+
+The inspected none image has no compression-type flags in its WIM header (`0x80` includes the other header flags). The diagnostic fast image uses XPRESS (`0x20082`); the earlier maximum ESD uses LZMS (`0x80082`). These container observations agree with the selected modes. Integrity verification and saved file/hive inspection passed for the none output. A large uncompressed container does not mean the removed apps were silently restored.
+
+An uncompressed final export still reads/decompresses the working WIM, writes the remaining unique file data, records integrity information, masters the larger ISO and hashes it. Its measured final export took 69.4 seconds; ISO writing took 37.1 seconds and hashing took 22.9 seconds. Therefore disabling compression does not remove every final-stage cost or guarantee a large total speed gain compared with fast compression.
 
 ## 4. Upstream duplicate images: both original and patched files in one ISO
 
@@ -140,10 +158,21 @@ The source Pro edition's reported uncompressed XML size is 26,770,709,765 bytes;
 
 The user now explicitly requests two complete fresh benchmark runs: **none + skipped cleanup** for the fastest uncompressed setting, and **maximum + normal cleanup** for the normal smallest-image setting. Both use the same original ISO, Pro index, preset and patch selections. New folders and code/preset hash snapshots exclude previous patched-data reuse. The total comparison includes cleanup's effect; it must not be described as a compression-only controlled comparison or as byte-identical outputs.
 
-The none run started at 18:54:07, process 11812; its evidence lives in `logs/manual-verification/none-20261004-184922`. Preflight confirmed no old writers, mounts or loaded offline hives, with inherited Normal priority. The new early hive test passed. The maximum run must wait until this process has exited and its attachments have been checked.
+The none run finished in 557.8 seconds (9 min 18 sec), with a 14,746,617,856-byte ISO and 13,865,993,139-byte uncompressed WIM. Its [saved-image inspection](verification/2026-10-04/none-inspection.json) passed all app/file/registry/integrity/metadata checks. The maximum run finished in 1265.9 seconds (21 min 6 sec), with a 6,229,929,984-byte ISO and 5,349,305,984-byte ESD; its [saved-image inspection](verification/2026-10-04/maximum-inspection.json) passed the same checks. Both recorded exit 0 with no build warnings. Maximum compression saves 57.8% of ISO bytes at an extra 11 min 48 sec. It used 12 threads and took 838.1 seconds (838.8 including stage overhead). Normal component cleanup took only 14.2 seconds in this sample.
 
-Both builders now capture the source's actual XML metadata and validate the final installation image before ISO mastering. Missing or changed edition, flags, architecture, installation/product fields, languages/default language or Windows version cause a failure rather than a silently ambiguous output. Matching version is intentional here: the optimization must not silently downgrade the source release. No raw WIM header/XML rewrite is used.
+The second builder started only after the previous builder/verifier exited. Its preflight again recorded zero earlier writers, mounts and offline hives. The four saved builder/catalog file hashes match between the two runs. The [full comparison](PERFORMANCE.md) explains configuration differences, timing boundaries, stage durations and why 14.75 GB without compression does not imply a removal failure.
+
+Both builds captured the actual source XML and validated the final installation image before ISO mastering; their metadata was complete. Subsequently, the [review of PRs #623/#628/#622](UPSTREAM_PR_REVIEW.md) extended this guard to restore only missing source-derived edition/product/language fields using wimlib's supported API. Existing conflicts and invalid architecture/version/flags still fail. Readback is mandatory, integrity metadata is retained, and file data is not recompressed for the repair. This is fixture-verified on WIM and solid ESD; the retained benchmark ISO predates the PR adaptations. No raw WIM header/XML rewrite is used.
+
+## Cleanup and retained output
+
+On explicit user request, the original ISO was left intact and the final maximum ISO plus checksum/JSON sidecars were moved to `C:\Users\Z\Downloads\PROJECTS\ISOs\tiny11-26300-maximum-20261004-190253.iso`. SHA-256 was verified before and after moving:
+`2b1cced1fe91288292b054416f9ce230168ba71eee1849290606b973c1f56808`.
+
+**Follow-up at 20:01 CEST:** the previously recorded maximum ISO and its sidecars are absent from the ISOs folder and other recorded project/output locations. The original source ISO still exists. The user was asked whether the final output was moved or deleted. The cleanup JSON is a historical record; it does not establish current file availability. See [follow-up status](verification/2026-10-04/post-review-verification.json).
+
+The entire task-created `C:\.temp` folder, earlier checkpoint, fast/uncompressed outputs, repository `artifacts`/raw `logs`, and downloaded development caches were removed after confirming no writers or mounts remained. The repository then occupied approximately 72.5 MB including Git and existing reference clones. [Cleanup evidence](verification/2026-10-04/cleanup.json) records the removed paths and preserved source/output. Historical paths in this report identify earlier tests; their raw files no longer exist. Compact JSON evidence was preserved before deletion.
 
 No ISO has yet been booted/installed in a VM as part of this verification. That remains the limit on claims of installation success even when image/container/metadata checks pass.
 
-Shareable summaries and controlled-test results are committed in [verification/2026-10-04](verification/2026-10-04). Full raw logs, intermediate files and generated ISOs remain local and ignored by Git; their filesystem references in this report are for local reproduction.
+Shareable summaries and controlled-test results are committed in [verification/2026-10-04](verification/2026-10-04). Raw logs and intermediate files were intentionally deleted during cleanup; the historically retained ISO is now absent at its recorded path. Historical filesystem references describe the executed tests, and the saved JSON summaries provide the remaining evidence.

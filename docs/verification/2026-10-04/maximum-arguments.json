@@ -1,0 +1,34 @@
+﻿{
+    "Fast":  false,
+    "ComputerName":  "AAA",
+    "InteractiveOobe":  true,
+    "WorkDirectory":  "C:\\.temp\\work-maximum-20261004-190253",
+    "DefenderExclusion":  false,
+    "Keep":  [
+                 "Terminal",
+                 "Calculator",
+                 "Notepad",
+                 "Photos"
+             ],
+    "Compress":  "maximum",
+    "ISO":  "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\Windows11_Client_x64_en-us_26300_9457.iso",
+    "Locale":  "en-US",
+    "Index":  6,
+    "Remove":  [
+                   "Paint",
+                   "Camera",
+                   "SoundRecorder",
+                   "StickyNotes",
+                   "Clock",
+                   "MediaPlayer",
+                   "MoviesTV",
+                   "SnippingTool"
+               ],
+    "Preset":  "C:\\Users\\Z\\Downloads\\PROJECTS\\Tiny11Builder_26\\logs\\manual-verification\\maximum-20261004-190253\\preset.json",
+    "Yes":  true,
+    "CompressionLevel":  100,
+    "TimeZone":  "Romance Standard Time",
+    "CompressionEngine":  "Wimlib",
+    "CompressionThreads":  0,
+    "OutputIso":  "C:\\.temp\\tiny11-26300-maximum-20261004-190253.iso"
+}

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — upstream PR adaptations and measured builds
+
+- Adapt upstream #623: separate driver-enabled Setup mount, bounded native
+  PowerShell folder cleanup, refuse mounted/redirected directories, and retain
+  image files after failed dismount or unknown mount state.
+- Adapt #628/#583: restore missing Setup edition/product/language fields from
+  the actual source using wimlib XML properties; retain integrity/compression,
+  reject conflicts and require saved-image readback. Valid metadata is a no-op.
+- Adapt verified missing #622 Edge AI policies under the existing RemoveAI
+  option; preserve Photos choices and the documented Paint policy path.
+- Record two fresh Windows 26H2 builds: 9m18s / 14.75 GB uncompressed versus
+  21m06s / 6.23 GB maximum, with independent saved-image verification. Preserve
+  compact benchmark/cleanup evidence and keep generated media outside the repo.
 ## Unreleased - fresh-build safety and diagnostics
 
 - Add isolated `-WorkDirectory` support, preserving other build folders and

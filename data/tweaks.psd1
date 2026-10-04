@@ -1,4 +1,4 @@
-﻿<#
+<#
     Tiny11 Builder - Ultimate Edition : offline registry tweak catalog
     ==================================================================
 
@@ -171,11 +171,14 @@
                 'HKLM\zSOFTWARE\Policies\Microsoft\Edge|Microsoft365CopilotChatIconEnabled|REG_DWORD|0'
                 'HKLM\zSOFTWARE\Policies\Microsoft\Edge|ComposeInlineEnabled|REG_DWORD|0'
                 'HKLM\zSOFTWARE\Policies\Microsoft\Edge|GenAILocalFoundationalModelSettings|REG_DWORD|1'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|EdgeHistoryAISearchEnabled|REG_DWORD|0'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|BuiltInAIAPIsEnabled|REG_DWORD|0'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|AIGenThemesEnabled|REG_DWORD|0'
             )
             Services = @(
                 'WSAIFabricSvc=4'
             )
-            Notes = 'Recall/Click to Do policies only matter on Copilot+ PCs; they are harmless elsewhere. Edge policies apply only if Edge is later reinstalled.'
+            Notes = 'Recall/Click to Do policies only matter on Copilot+ PCs; they are harmless elsewhere. Edge policies apply only if Edge is retained or later reinstalled; the history/API/theme policies do not apply to Microsoft-account profiles. Paint uses the documented CurrentVersion\Policies\Paint path, not the Policies\Microsoft\Paint path proposed in PR #622.'
         }
         @{
             Id    = 'Search'
