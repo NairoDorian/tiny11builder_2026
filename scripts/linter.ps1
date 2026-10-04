@@ -4,7 +4,7 @@
     PSScriptAnalyzer pass over every script and module, high-signal rules only.
 
 .DESCRIPTION
-    Installs PSScriptAnalyzer for the current user when missing. Stylistic
+    Uses pinned PSScriptAnalyzer 1.25.0, cached in the project when missing. Stylistic
     rules that conflict with an interactive, console-driven builder (Write-Host,
     plural nouns, verbs such as Invoke-/Build-, ShouldProcess on internal
     helpers) are suppressed. Exits 1 if any Warning/Error finding remains.
@@ -13,13 +13,24 @@
 #>
 $repo = Split-Path -Parent $PSScriptRoot
 
-if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
-    Write-Host "Installing PSScriptAnalyzer (CurrentUser scope)..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
-    Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
+$version = '1.25.0'
+if (Get-Module -ListAvailable -Name PSScriptAnalyzer | Where-Object Version -eq $version) {
+    Import-Module PSScriptAnalyzer -RequiredVersion $version
+} else {
+    $cache = Join-Path $repo "tools\PSScriptAnalyzer\$version"
+    $manifest = Join-Path $cache 'PSScriptAnalyzer.psd1'
+    if (-not (Test-Path -LiteralPath $manifest)) {
+        $folder = Split-Path -Parent $cache
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $zip = Join-Path $folder "$version.zip"
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri "https://www.powershellgallery.com/api/v2/package/PSScriptAnalyzer/$version" -OutFile $zip -UseBasicParsing -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne '14E634C828EB98EFB9F40B2918BA90F139ED5ECCDF663A2A747736D996995D60') { throw 'PSScriptAnalyzer package failed its pinned SHA-256 check.' }
+        Expand-Archive -LiteralPath $zip -DestinationPath $cache -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $zip -Force
+    }
+    Import-Module $manifest
 }
-Import-Module PSScriptAnalyzer
 
 $ignore = @(
     'PSAvoidUsingWriteHost',                        # interactive console tool
@@ -33,8 +44,10 @@ $ignore = @(
     'PSAvoidUsingComputerNameHardcoded'             # -ComputerName names the PC being installed, not a remote host
 )
 
-$files = Get-ChildItem -Path $repo -Recurse -File -Include *.ps1, *.psm1 |
-    Where-Object { $_.FullName -notmatch '\\(repos|logs|\.git)\\' }
+# Limit traversal to source locations; build media can contain hundreds of
+# thousands of files and must never be crawled by development checks.
+$files = @(Get-ChildItem -LiteralPath $repo -File | Where-Object Extension -in '.ps1','.psm1') +
+    @(Get-ChildItem -Path (Join-Path $repo 'lib'),(Join-Path $repo 'scripts') -Recurse -File -Include *.ps1,*.psm1)
 
 $any = $false
 foreach ($file in $files) {

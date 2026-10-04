@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Builds tiny11 Core: the smallest possible Windows 11 image, for VMs and testing.
 
@@ -20,6 +20,10 @@
 
 .PARAMETER SCRATCH
     Drive letter for the work folders (default: the drive this script is on). NTFS only.
+
+.PARAMETER WorkDirectory
+    Optional absolute NTFS folder for an isolated build. Must be new or empty.
+    Work files and image mounts stay below this folder; other builds are preserved.
 
 .PARAMETER Index
     Image index to build.
@@ -58,6 +62,7 @@
 param (
     [Parameter(Position = 0)][string]$ISO,
     [Parameter(Position = 1)][ValidatePattern('^[c-zC-Z]:?$')][string]$SCRATCH,
+    [string]$WorkDirectory,
     [int]$Index,
     [string]$Edition,
     [string]$Preset = 'Minimal-VM',
@@ -68,7 +73,10 @@ param (
     [string[]]$SkipTweak = @(),
     [switch]$EnableNetFx3,
     [string]$DriverPath,
-    [ValidateSet('recovery', 'max', 'fast', 'none')][string]$Compress,
+    [ValidateSet('maximum', 'balanced', 'fast', 'none', 'recovery', 'max')][string]$Compress,
+    [ValidateSet('Auto', 'Dism', 'Wimlib')][string]$CompressionEngine = 'Auto',
+    [ValidateRange(1, 200)][int]$CompressionLevel = 100,
+    [ValidateRange(0, 1024)][int]$CompressionThreads = 0,
     [switch]$Fast,
     [string]$OutputIso,
     [switch]$NoPrompt,
@@ -112,6 +120,20 @@ if ($ISO) { $ISO = $ISO.Trim().Trim('"') }
 if ($ISO -match '^[c-zC-Z]:?\\?$') { $ISO = $ISO.Substring(0, 1) }
 if ($SCRATCH) { $SCRATCH = $SCRATCH.Substring(0, 1) }
 $ScratchDisk = if ($SCRATCH) { "${SCRATCH}:" } else { (Split-Path -Qualifier $PSScriptRoot) }
+$ScratchRoot = "$ScratchDisk\"
+if ($WorkDirectory) {
+    if (-not [IO.Path]::IsPathRooted($WorkDirectory) -or $WorkDirectory -notmatch '^[a-zA-Z]:\\') {
+        throw '-WorkDirectory must be an absolute folder path on a local NTFS drive.'
+    }
+    $ScratchRoot = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\')
+    if ($ScratchRoot -eq [IO.Path]::GetPathRoot($ScratchRoot).TrimEnd('\')) {
+        throw '-WorkDirectory must be a folder, not a drive root.'
+    }
+    if ((Test-Path -LiteralPath $ScratchRoot) -and @(Get-ChildItem -LiteralPath $ScratchRoot -Force -ErrorAction Stop).Count) {
+        throw '-WorkDirectory must be new or empty. Stop any earlier writer before choosing another folder.'
+    }
+    $ScratchDisk = Split-Path -Qualifier $ScratchRoot
+}
 if (-not $OutputIso) { $OutputIso = Join-Path $PSScriptRoot 'tiny11core.iso' }
 if ($ZeroTouch -and -not $PSBoundParameters.ContainsKey('NoPrompt')) { $NoPrompt = $true }
 if ($ISO -match '^[c-zC-Z]$' -and $SCRATCH -and $ISO -ieq $SCRATCH) {
@@ -186,8 +208,8 @@ $Script:buildWarnings = 0
 $Script:transcriptStarted = $false
 $Script:defenderExclusions = @()
 $Script:source = $null
-$workRoot = "$ScratchDisk\tiny11"
-$mountDir = "$ScratchDisk\scratchdir"
+$workRoot = Join-Path $ScratchRoot 'tiny11'
+$mountDir = Join-Path $ScratchRoot 'scratchdir'
 
 trap {
     Write-Host ""
@@ -195,7 +217,7 @@ trap {
     if ($_.InvocationInfo.PositionMessage) { Write-Host $_.InvocationInfo.PositionMessage -ForegroundColor DarkGray }
     Write-Warning "Cleaning up (unloading hives, discarding the mounted image)..."
     $isoToEject = if ($Script:source -and $Script:source.MountedByScript) { $Script:source.IsoPath } else { $null }
-    Invoke-EmergencyCleanup -ScratchDisk $ScratchDisk -IsoImagePath $isoToEject -DefenderExclusions $Script:defenderExclusions
+    Invoke-EmergencyCleanup -ScratchDisk $ScratchRoot -IsoImagePath $isoToEject -DefenderExclusions $Script:defenderExclusions
     if ($Script:transcriptStarted) { try { Stop-Transcript | Out-Null } catch { Write-Verbose 'Transcript already stopped.' } }
     exit 1
 }
@@ -206,19 +228,20 @@ try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { Write-V
 Start-Transcript -Path (Join-Path $logDir "tiny11core_$(Get-Date -f yyyyMMdd_HHmmss).log") | Out-Null
 $Script:transcriptStarted = $true
 $buildStart = Get-Date
-[System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal
+# Inherit process priority; the user controls host CPU scheduling.
 $Host.UI.RawUI.WindowTitle = "Tiny11 Core image creator - Ultimate Edition $Script:Version"
 
 #---------[ Pre-flight, source & edition ]---------#
 Test-Prerequisites
-Clear-StaleBuildState
-if ($SCRATCH) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
+if (-not $WorkDirectory) { Clear-StaleBuildState }
+if ($SCRATCH -or $WorkDirectory) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
 
 $Script:source = Resolve-WindowsSource -IsoParameter $ISO
 $DriveLetter = $Script:source.DriveLetter
 $sourceImage = if (Test-Path "$DriveLetter\sources\install.wim") { "$DriveLetter\sources\install.wim" } else { "$DriveLetter\sources\install.esd" }
 $imageIndex = Select-ImageIndex -Images @(Get-WindowsImage -ImagePath $sourceImage) -Index $Index -Edition $Edition -NonInteractive:$Yes
 $info = Get-ImageInfo -ImagePath $sourceImage -Index $imageIndex
+$sourceMetadata = Get-InstallImageMetadata -ImagePath $sourceImage -Index $imageIndex
 $architecture = $info.Architecture
 $languageCode = $info.Language
 Write-Host "Selected: [$imageIndex] $($info.Name) | $($info.DisplayVersion) build $($info.Version) | $architecture | $languageCode"
@@ -248,6 +271,8 @@ if ($DefenderExclusion) {
     $Script:defenderExclusions = @(Add-BuildDefenderExclusion -Path @($workRoot, $mountDir))
 }
 
+Test-OfflineHiveLoading -ScratchRoot $ScratchRoot
+
 #---------[ Copy media & export the chosen edition ]---------#
 Write-Host "Copying installation media (without the install image)..."
 if (Test-Path $workRoot) { Remove-Item -Path $workRoot -Recurse -Force }
@@ -255,17 +280,17 @@ New-Item -ItemType Directory -Force -Path "$workRoot\sources" | Out-Null
 Invoke-Robocopy -Source "$DriveLetter\" -Destination $workRoot -ExcludeFile @('install.wim', 'install.esd')
 $wimFilePath = "$workRoot\sources\install.wim"
 Write-Host "Exporting edition $imageIndex from $(Split-Path $sourceImage -Leaf)..."
-Export-WindowsImage -SourceImagePath $sourceImage -SourceIndex $imageIndex -DestinationImagePath $wimFilePath -CompressionType fast | Out-Null
+Export-SelectedInstallImage -Source $sourceImage -Index $imageIndex -Destination $wimFilePath -CompressionEngine $CompressionEngine
 Dismount-WindowsSource -Source $Script:source
 
 #---------[ Mount ]---------#
 Write-Host "Mounting the Windows image..."
-$null = Initialize-ScratchWorkspace -ScratchRoot $ScratchDisk
-Mount-WindowsImage -ImagePath $wimFilePath -Index 1 -Path $mountDir | Out-Null
+$null = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
+Invoke-DismChecked -Label 'Image mount' '/Mount-Image' "/ImageFile:$wimFilePath" '/Index:1' "/MountDir:$mountDir"
 Assert-MountedImage -MountPath $mountDir
 
 #---------[ Apps & capabilities ]---------#
-$apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -KeepApps:$KeepApps
+$apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -ImageBuild $info.Build -KeepApps:$KeepApps
 $Script:buildWarnings += $apps.Failures
 $Script:buildWarnings += Invoke-CapabilityRemovalStage -MountPath $mountDir -LanguageCode $languageCode -Core
 
@@ -420,10 +445,11 @@ Write-Host "Committing and unmounting the Windows image..."
 if (-not (Invoke-SafeDismountImage -Path $mountDir -Save)) {
     throw "Failed to commit/unmount the install image."
 }
-$null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile
+$null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile -CompressionEngine $CompressionEngine -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
+Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata
 
 #---------[ boot.wim, answer file, ISO ]---------#
-$Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchDisk -DriverPath $DriverPath
+$Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
 Write-UnattendFile -Xml $unattendXml -Path "$workRoot\autounattend.xml"
 $isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture `
     -Label "TINY11CORE_$($info.DisplayVersion)_$($architecture.ToUpperInvariant())" -NoPrompt:$NoPrompt
@@ -431,7 +457,7 @@ $isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architectur
 $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
     builder     = "tiny11Coremaker.ps1 $Script:Version"
     source      = @{ image = $sourceImage; index = $imageIndex; name = $info.Name; edition = $info.Edition; version = $info.Version; displayVersion = $info.DisplayVersion; architecture = $architecture; language = $languageCode }
-    options     = @{ preset = $Preset; compress = $buildProfile.Compress; keep = $Keep; remove = $Remove; netFx3 = [bool]$EnableNetFx3; drivers = [bool]$DriverPath; zeroTouch = [bool]$ZeroTouch; interactiveOobe = [bool]$InteractiveOobe; browser = $Browser; skipTweak = $SkipTweak }
+    options     = @{ preset = $Preset; compress = $buildProfile.Compress; compressionEngine = $CompressionEngine; compressionLevel = $CompressionLevel; compressionThreads = $CompressionThreads; keep = $Keep; remove = $Remove; netFx3 = [bool]$EnableNetFx3; drivers = [bool]$DriverPath; zeroTouch = [bool]$ZeroTouch; interactiveOobe = [bool]$InteractiveOobe; browser = $Browser; skipTweak = $SkipTweak }
     flags       = $flags
     removedApps = $apps.Removed
     tweakGroups = $tweaks.Applied

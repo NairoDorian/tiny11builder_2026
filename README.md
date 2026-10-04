@@ -1,7 +1,7 @@
 # Tiny11 Builder — Ultimate Edition (2026)
 
 [![CI](https://github.com/NairoDorian/tiny11builder_2026/actions/workflows/ci.yml/badge.svg)](https://github.com/NairoDorian/tiny11builder_2026/actions/workflows/ci.yml)
-![Windows 11 25H2 / 24H2](https://img.shields.io/badge/Windows%2011-25H2%20%7C%2024H2%20%7C%2023H2-0067C0)
+![Windows 11 26H2 / 25H2 / 24H2](https://img.shields.io/badge/Windows%2011-26H2%20%7C%2025H2%20%7C%2024H2-0067C0)
 ![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)
 ![x64 + ARM64](https://img.shields.io/badge/arch-x64%20%7C%20ARM64-555)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -58,7 +58,7 @@ It also merges the best work of 15 community forks (see [Credits](#history-and-c
 | | |
 |---|---|
 | **Every option in one window** | A 7-tab GUI with a live log and stage progress. The build runs inside it, and Cancel cleans up. |
-| **Current Windows** | 25H2, 24H2, 23H2 and 22H2 media, x64 and ARM64, `install.wim` or `install.esd` ISOs, any language. |
+| **Current Windows** | 26H2 (build 26300), 26H1, 25H2, 24H2, 23H2 and 22H2 media, x64 and ARM64, `install.wim` or `install.esd` ISOs, any language. |
 | **AI and ads off** | Policies for Copilot, Recall, Click to Do, the Settings agent, generative AI in Paint, Notepad and Edge, Widgets, Bing search, Start recommendations and "finish setting up" nags. |
 | **No surprise reinstalls** | Removed apps are *deprovisioned*, and the Outlook, Dev Home, Teams and Edge re-installers are blocked. |
 | **Your first boot, your way** | A local admin account (or create one in OOBE), locale, time zone, computer name, a zero-touch install for VMs, a browser installed at first sign-in, and your own scripts. |
@@ -72,7 +72,7 @@ It also merges the best work of 15 community forks (see [Credits](#history-and-c
 
 1. Download a Windows 11 ISO from [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
 2. Double-click **`LAUNCH_TINY11.bat`** and press **1** (graphical builder). It asks for administrator rights.
-3. In **Source**, pick the ISO, click **Load editions** and choose an edition, for example *Windows 11 Pro*.
+3. In **Source**, browse to the ISO and choose an edition, for example *Windows 11 Pro*. Its editions load automatically without mounting. For a typed path or existing drive, click **Load editions**.
 4. Optionally adjust the other tabs, then click **Build ISO**. A build takes about 20–40 minutes.
 5. Write the ISO to a USB stick with [Rufus](https://rufus.ie) (keep its default options) or
    attach it to a VM.
@@ -117,7 +117,7 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
 | **4 Tweaks** | All 28 registry tweak groups and what enables each. Uncheck to skip a group; check a greyed one to turn on its flag. Every value of the selected group is shown. |
 | **5 Setup & account** | Local admin and password, or create the account in OOBE. Language/keyboard, time zone, computer name, zero-touch install, custom answer file. **Preview or save the generated `autounattend.xml`.** |
 | **6 Extras** | .NET 3.5, a driver folder (the `.inf` files are counted), a browser, payload scripts, the low-RAM profile, no driver updates, and the Defender exclusion on the build PC. |
-| **7 Build** | Plan, checks (errors block the build; warnings explain trade-offs) and the command line to copy. During the build: stage progress, elapsed time, a colour-coded log, **Cancel** (stops the builder and discards the mounted image), and buttons to open the logs or show the ISO. |
+| **7 Build** | Plan, checks and the equivalent command line. During the build: overall and current-step progress, elapsed time, rough total ETA and measured step ETA when enough progress is available, a colour-coded log, **Cancel**, logs and output buttons. Steps without a measurable percentage show an animated bar. |
 
 | | |
 |---|---|
@@ -194,9 +194,21 @@ for the built-in help.
 | `-Edition <name>` / `-Index <n>` | The edition to build, e.g. `Pro`, `Home`, `"Windows 11 Pro N"` (the exact name or its last word), or its index |
 | `-SCRATCH <letter>` | NTFS drive for the work folders (default: the scripts' drive) |
 | `-OutputIso <path>` | Where to write the ISO |
-| `-Compress recovery\|max\|fast\|none` | `recovery` (default) writes `install.esd`, the smallest ISO; the others write `install.wim` |
+| `-Compress maximum\|balanced\|fast\|none` | `maximum` (default) writes `install.esd`, the smallest ISO; the others write `install.wim` |
+| `-CompressionEngine Auto\|Wimlib\|Dism` | Auto prefers the portable pinned wimlib compressor; DISM is available as a fallback |
+| `-CompressionLevel <1-200>` | wimlib compression effort; 100 (high) by default |
+| `-CompressionThreads <n>` | Zero (default) chooses threads based on CPU and memory; no host priority settings are changed |
 | `-Fast` | Fast compression and no component cleanup (quick test builds) |
 | `-NoPrompt` | The ISO boots straight into Setup without "Press any key" (implied by `-ZeroTouch`) |
+
+`maximum` means solid LZMS compression; `balanced` means LZX. The old `recovery`
+and `max` spellings remain accepted for existing commands and saved profiles.
+DISM's API still requires those historical names internally. Maximum compression
+is applied once, at the end. The initial edition export reuses ordinary WIM
+compressed resources where possible; solid ESD sources are converted to a
+standard WIM for servicing. See [performance measurements and dependency audit](docs/PERFORMANCE.md).
+The [build bug investigation](docs/BUILD_BUG_REPORT.md) records reproduced failures,
+upstream size/Setup regressions, safeguards and the limits of current verification.
 
 **What is removed**
 
@@ -308,8 +320,8 @@ answer files and the module manifests.
 |---|---|
 | "reg unload … failed" / a hive is still loaded | Close Registry Editor and any Explorer window on the work folder. The next run unloads leftover hives automatically. |
 | "Failed to commit/unmount" | Usually antivirus scanning the work folder: turn on the Defender exclusion. `dism /Cleanup-Mountpoints` clears stale mounts. |
-| The build is very slow | Put the work drive on an SSD and turn on the Defender exclusion; use a quick build for tests. `recovery` compression alone takes 10–20 min. |
-| "Load editions" fails | Run the GUI as administrator (the launcher does this); the ISO must contain `sources\install.wim` or `install.esd`. |
+| The build is very slow | Put the work drive on an SSD and turn on the Defender exclusion; use a quick build for tests. Maximum compression is CPU intensive. The GUI shows both current-step progress and overall stage estimates. |
+| "Load editions" fails | The ISO must contain `sources\install.wim` or `install.esd`. Editions are read through the bundled UDF/ISO9660 reader, without elevation, mounting, downloads or cached guesses. Malformed, encrypted or split images need suitable source media. |
 | Setup asks for a product key | Choose the edition you own. Setup activates with the key stored in your firmware. |
 | Setup cannot see the disk (Intel VMD/RST laptops) | Point the drivers folder at the extracted Intel RST "F6" drivers. |
 | The ISO does not boot on an old BIOS PC | x64 ISOs boot on BIOS, but zero-touch partitions for UEFI/GPT. Install interactively instead. |

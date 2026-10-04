@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Shared utility module for Tiny11 Builder - Ultimate Edition.
 
@@ -61,11 +61,12 @@ function Invoke-Native {
         [Parameter(Mandatory = $true)][string]$FilePath,
         [string[]]$ArgumentList = @(),
         [switch]$PassThru,
+        [switch]$StreamOutput,
         [ValidateRange(0, 3600)][int]$TimeoutSeconds = 0
     )
     # Bound short registry operations; DISM and large file operations retain
     # their existing unlimited runtime. Drain both pipes concurrently.
-    if ($TimeoutSeconds -gt 0) {
+    if ($TimeoutSeconds -gt 0 -or $StreamOutput) {
         $start = New-Object System.Diagnostics.ProcessStartInfo
         $start.FileName = $FilePath
         $start.Arguments = Build-ProcessArgumentString -Arguments $ArgumentList
@@ -76,8 +77,42 @@ function Invoke-Native {
         $start.RedirectStandardInput = $true
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $start
+        $started = $false
         try {
             [void]$process.Start()
+            $started = $true
+            if ($StreamOutput) {
+                # Treat both native pipes as text. In particular, Oscdimg writes
+                # normal progress to stderr; it is not a PowerShell ErrorRecord.
+                $process.StandardInput.Close()
+                $lines = New-Object System.Collections.Generic.List[string]
+                $readers = @($process.StandardOutput, $process.StandardError)
+                $pending = @($readers[0].ReadLineAsync(), $readers[1].ReadLineAsync())
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                while ($null -ne $pending[0] -or $null -ne $pending[1]) {
+                    for ($i = 0; $i -lt 2; $i++) {
+                        if ($null -ne $pending[$i] -and $pending[$i].IsCompleted) {
+                            $line = $pending[$i].GetAwaiter().GetResult()
+                            if ($null -eq $line) { $pending[$i] = $null }
+                            else {
+                                $lines.Add($line)
+                                Write-Host $line
+                                $pending[$i] = $readers[$i].ReadLineAsync()
+                            }
+                        }
+                    }
+                    if ($TimeoutSeconds -gt 0 -and $clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                        throw "$FilePath timed out after $TimeoutSeconds seconds."
+                    }
+                    Start-Sleep -Milliseconds 10
+                }
+                if ($TimeoutSeconds -gt 0) {
+                    $remaining = [int][Math]::Max(1, ($TimeoutSeconds * 1000) - $clock.ElapsedMilliseconds)
+                    if (-not $process.WaitForExit($remaining)) { throw "$FilePath timed out after $TimeoutSeconds seconds." }
+                } else { $process.WaitForExit() }
+                if ($PassThru) { return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $lines.ToArray() } }
+                return $process.ExitCode
+            }
             $stdout = $process.StandardOutput.ReadToEndAsync()
             $stderr = $process.StandardError.ReadToEndAsync()
             $process.StandardInput.Close() # No invisible confirmation prompts.
@@ -89,7 +124,10 @@ function Invoke-Native {
             $output = @(($stdout.Result + $stderr.Result) -split '\r?\n' | Where-Object { $_ })
             if ($PassThru) { return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $output } }
             return $process.ExitCode
-        } finally { $process.Dispose() }
+        } finally {
+            if ($started -and -not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
+            $process.Dispose()
+        }
     }
     $ErrorActionPreference = 'Continue'
     $output = & $FilePath @ArgumentList 2>&1 | ForEach-Object { "$_" }
@@ -151,13 +189,30 @@ function Invoke-DismChecked {
         [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$DismArgs
     )
-    & dism @DismArgs
-    Assert-CommandExitCode -Label $Label
+    $stage = switch ($Label) { 'Image mount' { 'mount' }; 'Image commit' { 'commit' }; default { $null } }
+    if ($stage) { Write-BuildProgress -Stage $stage -Percent -1 -Label $Label }
+    $rc = Invoke-Native -FilePath 'dism.exe' -ArgumentList $DismArgs -StreamOutput
+    Assert-CommandExitCode -Label $Label -ExitCode $rc
+    if ($stage) { Write-BuildProgress -Stage $stage -Percent 100 -Label $Label }
+}
+
+function Write-BuildProgress {
+    # Structured progress is consumed by the GUI; -1 means unknown duration.
+    param([string]$Stage, [ValidateRange(-1, 100)][int]$Percent, [string]$Label)
+    if (-not $Script:ProgressClocks) { $Script:ProgressClocks = @{} }
+    if (-not $Script:ProgressClocks.ContainsKey($Stage) -or $Percent -le 0) {
+        $Script:ProgressClocks[$Stage] = [Diagnostics.Stopwatch]::StartNew()
+    }
+    $seconds = [Math]::Round($Script:ProgressClocks[$Stage].Elapsed.TotalSeconds, 1)
+    Write-Host ('__TINY11_PROGRESS__ ' + (@{ Stage = $Stage; Percent = $Percent; Label = $Label; ElapsedSeconds = $seconds } | ConvertTo-Json -Compress))
+    if ($Percent -eq 100 -and $Script:ProgressClocks[$Stage].IsRunning) { $Script:ProgressClocks[$Stage].Stop(); Write-Host "Step completed: $Label ($seconds seconds)." }
 }
 
 #---------[ Registry Management (tracked + safe unload) ]---------#
 
 $Script:LoadedRegHives = [System.Collections.Generic.List[string]]::new()
+$Script:OfflineHiveFiles = @{}
+$Script:PendingOfflineWrites = @{}
 
 function Invoke-RegLoad {
     param(
@@ -168,6 +223,7 @@ function Invoke-RegLoad {
     if ($result.ExitCode -ne 0) {
         throw "reg load HKLM\$HiveName from '$FilePath' failed (exit $($result.ExitCode)): $($result.Output -join ' ')"
     }
+    $Script:OfflineHiveFiles[$HiveName] = [IO.Path]::GetFullPath($FilePath)
     if (-not $Script:LoadedRegHives.Contains($HiveName)) {
         $Script:LoadedRegHives.Add($HiveName)
     }
@@ -194,6 +250,12 @@ function Invoke-RegUnload {
         throw "reg unload HKLM\$HiveName failed after $Retries attempts (exit code $rc)."
     }
     [void]$Script:LoadedRegHives.Remove($HiveName)
+    if ($Script:PendingOfflineWrites.ContainsKey($HiveName)) {
+        Set-OfflineHiveDwordValues -HiveFile $Script:OfflineHiveFiles[$HiveName] -Entries @($Script:PendingOfflineWrites[$HiveName].ToArray())
+        [void]$Script:PendingOfflineWrites.Remove($HiveName)
+        Write-Host "Verified deferred image registry writes: $HiveName"
+    }
+    [void]$Script:OfflineHiveFiles.Remove($HiveName)
     Write-Output "Unloaded registry hive: HKLM\$HiveName"
 }
 
@@ -242,6 +304,97 @@ function Assert-OfflineHiveLoaded {
     }
 }
 
+function Set-OfflineHiveDwordValues {
+    # File-only operation: no reg load, host registry handles, or ACL takeover.
+    param(
+        [Parameter(Mandatory = $true)][string]$HiveFile,
+        [Parameter(Mandatory = $true)][object[]]$Entries
+    )
+    $ErrorActionPreference = 'Stop'
+    $resolved = (Get-Item -LiteralPath $HiveFile -ErrorAction Stop).FullName
+    $hostConfig = [IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\config')) + '\'
+    if ($resolved.StartsWith($hostConfig, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolved -eq (Join-Path $env:USERPROFILE 'ntuser.dat')) {
+        throw 'Refusing to edit a host registry hive file.'
+    }
+    foreach ($entry in $Entries) {
+        if (-not $entry.SubKey -or $entry.SubKey -match '^(HKLM|HKEY_|\\)' -or $entry.SubKey -match '(^|\\)\.\.(\\|$)') {
+            throw 'An offline entry must use a relative hive subkey.'
+        }
+        [void][uint32]$entry.Value
+    }
+    $fileSecurity = Get-Acl -LiteralPath $resolved
+    if (-not ('Tiny11OfflineRegistry' -as [type])) {
+        Add-Type -Path (Join-Path $PSScriptRoot 'OfflineRegistry.cs') -ErrorAction Stop
+    }
+    $hive = [IntPtr]::Zero
+    $temp = "$resolved.tiny11-$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::OROpenHive($resolved, [ref]$hive), 'Open offline hive')
+        foreach ($entry in $Entries) {
+            $key = [IntPtr]::Zero; $disposition = [uint32]0
+            try {
+                $parent = $hive
+                foreach ($part in ($entry.SubKey -split '\\')) {
+                    $next = [IntPtr]::Zero
+                    [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORCreateKey($parent, $part, $null, 0, [IntPtr]::Zero, [ref]$next, [ref]$disposition), "Open $($entry.SubKey)")
+                    if ($key -ne [IntPtr]::Zero) { [void][Tiny11OfflineRegistry]::ORCloseKey($key) }
+                    $key = $next; $parent = $key
+                }
+                $bytes = [BitConverter]::GetBytes([uint32]$entry.Value)
+                [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORSetValue($key, $entry.Name, 4, $bytes, 4), "Write $($entry.Name)")
+                $read = [byte[]]::new(4); $size = [uint32]4; $kind = [uint32]0
+                [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORGetValue($key, $null, $entry.Name, [ref]$kind, $read, [ref]$size), "Verify $($entry.Name)")
+                if ($kind -ne 4 -or $size -ne 4 -or [BitConverter]::ToUInt32($read, 0) -ne [uint32]$entry.Value) {
+                    throw "Offline registry readback failed: $($entry.SubKey)\$($entry.Name)"
+                }
+            } finally { if ($key -ne [IntPtr]::Zero) { [void][Tiny11OfflineRegistry]::ORCloseKey($key) } }
+        }
+        # 6.1 selects the modern hive format (also used by Windows 10/11).
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORSaveHive($hive, $temp, 6, 1), 'Save offline hive')
+        [void][Tiny11OfflineRegistry]::ORCloseHive($hive); $hive = [IntPtr]::Zero
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            Enable-Privilege -Privilege 'SeRestorePrivilege'
+        }
+        Set-Acl -LiteralPath $temp -AclObject $fileSecurity
+        # Atomic replacement preserves the original when saving/replacing fails.
+        $backup = "$temp.backup"
+        [IO.File]::Replace($temp, $resolved, $backup)
+        Remove-Item -LiteralPath $backup -Force
+    } finally {
+        if ($hive -ne [IntPtr]::Zero) { [void][Tiny11OfflineRegistry]::ORCloseHive($hive) }
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}
+
+function Set-ProtectedOfflineRegistryValue {
+    # Defer denied DWORDs until reg unload has flushed and released the image
+    # file. Offreg can then edit the file without changing registry permissions.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    )
+    if (-not (Test-OfflineRegistryPath $Path)) { throw "Refusing retry outside offline hives: $Path" }
+    if ($ArgumentList.Count -lt 2 -or $ArgumentList[0] -ne 'add' -or $ArgumentList[1] -ne $Path) {
+        throw 'Protected registry retry must write only the specified offline key.'
+    }
+    Assert-OfflineHiveLoaded -Path $Path
+    $parts = ($Path -replace '^HKEY_LOCAL_MACHINE\\', 'HKLM\') -split '\\', 3
+    $hive = $parts[1]
+    if (-not $Script:OfflineHiveFiles.ContainsKey($hive)) { throw "No tracked image hive file for $Path" }
+    $typeIndex = [Array]::IndexOf($ArgumentList, '/t')
+    $dataIndex = [Array]::IndexOf($ArgumentList, '/d')
+    $nameIndex = [Array]::IndexOf($ArgumentList, '/v')
+    if ($typeIndex -lt 0 -or $typeIndex + 1 -ge $ArgumentList.Count -or $ArgumentList[$typeIndex + 1] -ne 'REG_DWORD' -or
+        $dataIndex -lt 0 -or $dataIndex + 1 -ge $ArgumentList.Count) { throw 'File-only retry supports DWORD entries only.' }
+    $name = if ($nameIndex -ge 0 -and $nameIndex + 1 -lt $ArgumentList.Count) { $ArgumentList[$nameIndex + 1] } else { '' }
+    $entry = [pscustomobject]@{ SubKey = $parts[2]; Name = $name; Value = [uint32]$ArgumentList[$dataIndex + 1] }
+    if (-not $Script:PendingOfflineWrites.ContainsKey($hive)) { $Script:PendingOfflineWrites[$hive] = [Collections.Generic.List[object]]::new() }
+    $Script:PendingOfflineWrites[$hive].Add($entry)
+    Write-Host "Deferred image-file registry write: $Path\$name (verified after hive unload)."
+}
 function Set-RegistryValue {
     # Writes one value into an offline hive via reg.exe. Throws on failure, and
     # refuses paths outside HKLM\z* (see Test-OfflineRegistryPath) or hives
@@ -263,6 +416,12 @@ function Set-RegistryValue {
     if ($name) { $regArgs += @('/v', $name) } else { $regArgs += '/ve' }
     $nativeResult = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs -TimeoutSeconds 30 -PassThru
     $rc = $nativeResult.ExitCode
+    if ($rc -ne 0 -and ($nativeResult.Output -join ' ') -match 'Access is denied') {
+        # New hosts can deny individual values despite permissive image ACLs.
+        # Write the image file after unload; never change its registry ACLs.
+        Set-ProtectedOfflineRegistryValue -Path $path -ArgumentList $regArgs
+        $rc = 0
+    }
     if ($rc -ne 0) { throw "reg add $path\$name failed with exit code ${rc}: $($nativeResult.Output -join ' ')" }
     Write-Output "Set registry value: $path\$name"
 }
@@ -359,8 +518,9 @@ public static class AdvPrivilege
         tp.Attr = SE_PRIVILEGE_ENABLED;
 
         bool retVal = AdjustTokenPrivileges(htok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+        int error = Marshal.GetLastWin32Error();
         CloseHandle(htok);
-        return retVal;
+        return retVal && error == 0;
     }
 }
 "@
@@ -368,7 +528,9 @@ public static class AdvPrivilege
         Add-Type -TypeDefinition $source -ErrorAction Stop | Out-Null
     }
 
-    [AdvPrivilege]::EnablePrivilege($Privilege) | Out-Null
+    if (-not [AdvPrivilege]::EnablePrivilege($Privilege)) {
+        throw "Unable to enable $Privilege. Run the builder as administrator."
+    }
 }
 
 function Enable-TaskCacheWriteAccess {
@@ -526,7 +688,8 @@ function Remove-OfflineScheduledTask {
     $cacheKey = 'zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
     $cache = "HKLM\$cacheKey"
     $adminGroup = (New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')).Translate([System.Security.Principal.NTAccount])
-    $removed = 0
+    $removed = 0; $completed = 0
+    Write-BuildProgress -Stage telemetry -Percent 0 -Label 'Removing telemetry tasks'
     foreach ($task in $TaskPath) {
         Write-Host "Removing scheduled task: $task"
         $entries = @(Get-OfflineTaskIds -TaskPath $task)
@@ -546,6 +709,8 @@ function Remove-OfflineScheduledTask {
             Remove-Item -LiteralPath $file -Recurse -Force -ErrorAction SilentlyContinue
         }
         if ($entries.Count) { Write-Host "Removed scheduled task: $task" }
+        $completed++
+        Write-BuildProgress -Stage telemetry -Percent ([int](100 * $completed / $TaskPath.Count)) -Label "Removing telemetry tasks ($completed/$($TaskPath.Count))"
     }
     [GC]::Collect()
     return $removed
@@ -594,7 +759,7 @@ function Invoke-SafeDismountImage {
         try {
             [GC]::Collect()
             if ($Save) {
-                Dismount-WindowsImage -Path $Path -Save -ErrorAction Stop | Out-Null
+                Invoke-DismChecked -Label 'Image commit' '/Unmount-Image' "/MountDir:$Path" '/Commit'
             } else {
                 Dismount-WindowsImage -Path $Path -Discard -ErrorAction Stop | Out-Null
             }
@@ -613,25 +778,29 @@ function Invoke-SafeDismountImage {
 
 function Resolve-BuildProfile {
     # -Compress picks the final install image format:
-    #   recovery -> install.esd (LZMS, smallest ISO, slowest export) [default]
-    #   max      -> install.wim, maximum LZX compression
+    #   maximum  -> install.esd (solid LZMS, smallest ISO) [default]
+    #   balanced -> install.wim, LZX compression
     #   fast     -> install.wim, XPRESS (quick builds)
     #   none     -> install.wim, uncompressed (largest)
     # -Fast = fast compression + skip DISM component cleanup; an explicit
     # -Compress still wins over -Fast.
     param([string]$Compress, [switch]$Fast)
 
-    $valid = 'recovery', 'max', 'fast', 'none'
+    $valid = 'maximum', 'balanced', 'fast', 'none', 'recovery', 'max'
     if ($Compress -and ($valid -notcontains $Compress)) {
         throw "Invalid -Compress '$Compress'. Valid values: $($valid -join ', ')"
     }
-    $effective = if ($Compress) { $Compress.ToLowerInvariant() } elseif ($Fast) { 'fast' } else { 'recovery' }
+    $effective = if ($Compress) { $Compress.ToLowerInvariant() } elseif ($Fast) { 'fast' } else { 'maximum' }
+    # Only the compatibility boundary and DISM itself use the historical names.
+    if ($effective -eq 'recovery') { $effective = 'maximum' }
+    if ($effective -eq 'max') { $effective = 'balanced' }
+    $dismCompression = switch ($effective) { 'maximum' { 'recovery' }; 'balanced' { 'max' }; default { $effective } }
     return [pscustomobject]@{
         Compress       = $effective
         SkipCleanup    = [bool]$Fast
-        UseEsd         = ($effective -eq 'recovery')
-        ExportCompress = $effective
-        ImageFileName  = if ($effective -eq 'recovery') { 'install.esd' } else { 'install.wim' }
+        UseEsd         = ($effective -eq 'maximum')
+        ExportCompress = $dismCompression
+        ImageFileName  = if ($effective -eq 'maximum') { 'install.esd' } else { 'install.wim' }
     }
 }
 
@@ -1055,22 +1224,82 @@ function Initialize-ScratchWorkspace {
             Write-Host "Dismounting leftover scratch image from a previous run..."
             $null = Invoke-SafeDismountImage -Path $scratchDir
         }
-        Remove-Item -Path $scratchDir -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path $scratchDir) {
-            # Long paths / odd ACLs left behind by a crashed run.
-            $null = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', 'rmdir', '/s', '/q', "\\?\$scratchDir")
+        $absoluteRoot = [IO.Path]::GetFullPath(($ScratchRoot.TrimEnd('\') + '\'))
+        $absoluteScratch = [IO.Path]::GetFullPath($scratchDir)
+        if (-not $absoluteScratch.StartsWith($absoluteRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($absoluteScratch) -ne 'scratchdir') {
+            throw 'Refusing to remove a scratch folder outside its build root.'
         }
+        if ($mounted.Count -gt 0 -and @(Get-WindowsImage -Mounted -ErrorAction Stop | Where-Object { $_.Path -eq $scratchDir -or $_.MountPath -eq $scratchDir }).Count) {
+            throw 'The previous image is still mounted; refusing to delete its directory.'
+        }
+        Remove-Item -LiteralPath $absoluteScratch -Recurse -Force -ErrorAction Stop
     }
     New-Item -ItemType Directory -Force -Path $scratchDir | Out-Null
     return $scratchDir
 }
 
+function Test-OfflineHiveLoading {
+    # Fail before copying/mounting gigabytes. A short path alone did not fix
+    # the reproduced launch-context failure; see docs/BUILD_BUG_REPORT.md.
+    # This disposable file is unrelated to any live Windows registry hive.
+    param([Parameter(Mandatory = $true)][string]$ScratchRoot)
+    $probeRoot = Join-Path ([IO.Path]::GetFullPath($ScratchRoot)) ('.hive-probe-' + [guid]::NewGuid().ToString('N'))
+    $probeFile = Join-Path $probeRoot 'probe.hiv'
+    $alias = 'zT11Preflight' + $PID
+    if (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\$alias") {
+        throw "Offline preflight hive HKLM\$alias already exists; finish its owner before continuing."
+    }
+    $loaded = $false
+    $hive = [IntPtr]::Zero
+    try {
+        New-Item -ItemType Directory -Path $probeRoot -ErrorAction Stop | Out-Null
+        if (-not ('Tiny11OfflineRegistry' -as [type])) {
+            Add-Type -Path (Join-Path $PSScriptRoot 'OfflineRegistry.cs') -ErrorAction Stop
+        }
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORCreateHive([ref]$hive), 'Create offline preflight hive')
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORSaveHive($hive, $probeFile, 6, 1), 'Save offline preflight hive')
+        [void][Tiny11OfflineRegistry]::ORCloseHive($hive); $hive = [IntPtr]::Zero
+        try {
+            Invoke-RegLoad -HiveName $alias -FilePath $probeFile
+            $loaded = $true
+        } catch {
+            throw "Offline hive loading failed before image servicing. Retry from a normal elevated Windows PowerShell terminal; an inherited launch context can fail even with a short path. Do not change live Windows settings or reboot as a routine fix. See docs/BUILD_BUG_REPORT.md. Underlying error: $($_.Exception.Message)"
+        }
+        Invoke-RegUnload -HiveName $alias | Out-Host
+        $loaded = $false
+        Write-Host 'Offline hive-loading preflight passed.'
+    } finally {
+        if ($hive -ne [IntPtr]::Zero) { [void][Tiny11OfflineRegistry]::ORCloseHive($hive) }
+        # An unload failure keeps the probe for diagnosis; never delete a
+        # still-attached hive or interfere with another process's alias.
+        if ($loaded) { Invoke-RegUnload -HiveName $alias | Out-Host; $loaded = $false }
+        if (-not $loaded -and (Test-Path -LiteralPath $probeRoot)) {
+            $absoluteRoot = [IO.Path]::GetFullPath($ScratchRoot).TrimEnd('\') + '\'
+            $absoluteProbe = [IO.Path]::GetFullPath($probeRoot)
+            if (-not $absoluteProbe.StartsWith($absoluteRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                [IO.Path]::GetFileName($absoluteProbe) -notmatch '^\.hive-probe-[a-f0-9]{32}$') {
+                throw 'Refusing preflight cleanup outside its build root.'
+            }
+            Remove-Item -LiteralPath $absoluteProbe -Recurse -Force -ErrorAction Stop
+        }
+    }
+}
 function Assert-MountedImage {
-    # Sanity check right after Mount-WindowsImage.
+    # Check both the files and registry servicing before DISM opens the image.
     param([Parameter(Mandatory = $true)][string]$MountPath)
     if (-not (Test-Path "$MountPath\Windows\System32\config\SOFTWARE")) {
         throw "Image did not mount correctly at $MountPath (no Windows\System32\config\SOFTWARE)."
     }
+    if (Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\zSOFTWARE') {
+        throw 'Offline hive HKLM\zSOFTWARE is already loaded. Finish or clean up the other image build before starting this one.'
+    }
+    try {
+        Invoke-RegLoad -HiveName 'zSOFTWARE' -FilePath "$MountPath\Windows\System32\config\SOFTWARE"
+    } catch {
+        throw "Windows cannot load the mounted image's SOFTWARE registry hive; DISM cannot service this image. This can be a host registry-loading failure or an invalid source hive. Underlying error: $($_.Exception.Message)"
+    }
+    Invoke-RegUnload -HiveName 'zSOFTWARE' | Out-Host
 }
 
 function Get-OscdimgBootArgument {
@@ -1577,10 +1806,12 @@ function Invoke-Robocopy {
     )
     $rcArgs = @($Source, $Destination, '/E', "/MT:$(Get-MaxParallelJobs)", '/R:3', '/W:3', '/A-:R', '/NFL', '/NDL', '/NJH', '/NJS', '/NP')
     if ($ExcludeFile.Count) { $rcArgs += @('/XF') + $ExcludeFile }
+    Write-BuildProgress -Stage copy -Percent -1 -Label 'Copying installation media'
     $rc = Invoke-Native -FilePath 'robocopy.exe' -ArgumentList $rcArgs
     if (-not (Test-RobocopySucceeded $rc)) {
         throw "robocopy failed (exit code $rc) copying '$Source' -> '$Destination'."
     }
+    Write-BuildProgress -Stage copy -Percent 100 -Label 'Media copied'
 }
 
 #---------[ Optional Utilities & Packages ]---------#
@@ -1682,6 +1913,9 @@ function Get-WindowsDisplayVersion {
     # is loaded (the old code queried HKLM\zSOFTWARE before loading it, so
     # 24H2 detection never worked).
     param([int]$Build)
+    if ($Build -ge 28000 -and $Build -lt 28100) { return '26H1' }
+    if ($Build -ge 26300 -and $Build -lt 26400) { return '26H2' }
+    if ($Build -ge 26400) { return "Preview (build $Build)" }
     if ($Build -ge 26200) { return '25H2' }
     if ($Build -ge 26100) { return '24H2' }
     if ($Build -ge 22631) { return '23H2' }
@@ -1726,6 +1960,46 @@ function Get-ImageInfo {
     }
 }
 
+function Get-InstallImageMetadata {
+    # Read the actual XML, without DISM language defaults that could hide lost
+    # fields (upstream silent Setup failure #583 / proposed fix #628).
+    param([Parameter(Mandatory = $true)][string]$ImagePath, [int]$Index)
+    Import-Module (Join-Path $PSScriptRoot 'tiny11media.psm1') -DisableNameChecking
+    $stream = [IO.File]::OpenRead($ImagePath)
+    try {
+        $images = @(Read-WimMetadata -Stream $stream)
+        if ($Index) {
+            $selected = @($images | Where-Object Index -eq $Index)
+            if ($selected.Count -ne 1) { throw "Image index $Index not found uniquely in $ImagePath." }
+            return $selected[0]
+        }
+        return $images
+    } finally { $stream.Dispose() }
+}
+
+function Assert-InstallImageMetadata {
+    # Stop before mastering if export lost the source edition/language XML.
+    # Never invent Pro/en-US fields or patch WIM headers to hide a mismatch.
+    param([Parameter(Mandatory = $true)][string]$ImagePath, [Parameter(Mandatory = $true)]$Expected)
+    $actual = @(Get-InstallImageMetadata -ImagePath $ImagePath)
+    if ($actual.Count -ne 1) { throw 'Final installation image must contain exactly one edition.' }
+    foreach ($field in 'Edition', 'Architecture', 'Language') {
+        if (-not $Expected.$field -or -not $actual[0].$field) {
+            throw "Installation metadata is missing $field. See docs/BUILD_BUG_REPORT.md (upstream #583)."
+        }
+    }
+    foreach ($field in 'Edition', 'Flags', 'Architecture', 'InstallationType', 'ProductType', 'ProductSuite', 'Language', 'DefaultLanguage', 'Version') {
+        if ($Expected.$field -and $actual[0].$field -ine $Expected.$field) {
+            throw "Installation metadata $field changed from '$($Expected.$field)' to '$($actual[0].$field)'. Refusing ISO creation."
+        }
+    }
+    $expectedLanguages = @($Expected.Languages | Sort-Object -Unique)
+    $actualLanguages = @($actual[0].Languages | Sort-Object -Unique)
+    if (-not $expectedLanguages.Count -or (($expectedLanguages -join ',') -ine ($actualLanguages -join ','))) {
+        throw 'Installation language metadata changed or is missing. Refusing ISO creation.'
+    }
+    Write-Host "Verified final edition/language metadata: $($actual[0].Edition), $($actual[0].Language), $($actual[0].Version)."
+}
 function Select-ImageIndex {
     # Picks the image to build from the list Get-WindowsImage -ImagePath
     # returns (objects with ImageIndex / ImageName):
@@ -2088,13 +2362,18 @@ function Invoke-TweakCatalog {
         [string[]]$Skip = @(),
         [string[]]$Only = @()
     )
-    $plan = Get-TweakPlan -Flags $Flags -Skip $Skip -Only $Only
+    $plan = @(Get-TweakPlan -Flags $Flags -Skip $Skip -Only $Only)
     $failures = 0
     $firstBoot = New-Object System.Collections.Generic.List[string]
+    $completed = 0
+    Write-BuildProgress -Stage registry -Percent 0 -Label 'Applying registry tweaks'
     foreach ($group in $plan) {
         $failures += [int](Invoke-TweakGroup -Group $group)
         foreach ($line in @($group.FirstBoot)) { if ($line) { $firstBoot.Add($line) } }
+        $completed++
+        Write-BuildProgress -Stage registry -Percent ([int](100 * $completed / $plan.Count)) -Label "Applying tweaks ($completed/$($plan.Count))"
     }
+    Write-BuildProgress -Stage registry -Percent 100 -Label 'Registry tweaks processed'
     return [pscustomobject]@{
         Applied   = @($plan | ForEach-Object { $_.Id })
         Failures  = $failures
@@ -2318,7 +2597,9 @@ function Write-BuildManifest {
         [Parameter(Mandatory = $true)][string]$IsoPath,
         [Parameter(Mandatory = $true)][hashtable]$Data
     )
+    Write-BuildProgress -Stage hash -Percent -1 -Label 'Verifying ISO checksum'
     $hash = (Get-Sha256 -Path $IsoPath).ToLowerInvariant()
+    Write-BuildProgress -Stage hash -Percent 100 -Label 'ISO checksum recorded'
     $Data['iso'] = @{ file = (Split-Path $IsoPath -Leaf); sizeBytes = (Get-Item -LiteralPath $IsoPath).Length; sha256 = $hash }
     $Data['generatedAt'] = (Get-Date).ToString('o')
     $json = $Data | ConvertTo-Json -Depth 6
@@ -2341,7 +2622,8 @@ function Invoke-AppRemovalStage {
         [Parameter(Mandatory = $true)]$Utilities,
         [Parameter(Mandatory = $true)][string]$PackageListPath,
         [switch]$Custom,
-        [switch]$KeepApps
+        [switch]$KeepApps,
+        [int]$ImageBuild = 0
     )
     $provisioned = @(Get-AppxProvisionedPackage -Path $MountPath)
     Write-Host "Provisioned apps in the image ($($provisioned.Count)):"
@@ -2362,6 +2644,12 @@ function Invoke-AppRemovalStage {
     if ($Flags.RemoveStore) { $removePrefixes += @('Microsoft.WindowsStore', 'Microsoft.StorePurchaseApp') }
     if ($Flags.RemoveDefender) { $removePrefixes += 'Microsoft.SecHealthUI' }
     $protected = Get-ProtectedAppxPrefixes -AllowStoreRemoval:([bool]$Flags.RemoveStore) -AllowSecurityUiRemoval:([bool]$Flags.RemoveDefender)
+    if ($ImageBuild -ge 26100) {
+        $protected += 'Microsoft.SecHealthUI'
+        if ($Flags.RemoveDefender -and @($provisioned | Where-Object DisplayName -eq 'Microsoft.SecHealthUI').Count) {
+            Write-Host 'Keeping protected Windows Security app on build 26100 and later; Defender preset settings are applied separately.'
+        }
+    }
     $plan = @(Resolve-AppxRemovalList -Installed @($provisioned.PackageName) -RemovePrefixes $removePrefixes `
             -KeepPrefixes $keepPrefixes -ProtectedPrefixes $protected)
 
@@ -2372,7 +2660,8 @@ function Invoke-AppRemovalStage {
         $plan = @($picked | Where-Object { $_ } | ForEach-Object { $byName[$_] })
     }
 
-    $failures = 0
+    $failures = 0; $completed = 0
+    Write-BuildProgress -Stage apps -Percent 0 -Label 'Removing apps'
     foreach ($package in $plan) {
         Write-Host "Removing app: $package"
         try {
@@ -2382,7 +2671,10 @@ function Invoke-AppRemovalStage {
             Write-Warning "Could not remove $package : $($_.Exception.Message)"
             $failures++
         }
+        $completed++
+        Write-BuildProgress -Stage apps -Percent ([int](100 * $completed / $plan.Count)) -Label "Removing apps ($completed/$($plan.Count))"
     }
+    Write-BuildProgress -Stage apps -Percent 100 -Label 'Apps processed'
     return [pscustomobject]@{ Removed = $removed.ToArray(); Total = $plan.Count; Failures = $failures }
 }
 
@@ -2396,11 +2688,17 @@ function Invoke-CapabilityRemovalStage {
     Write-Host "Removing optional capabilities..."
     $installed = @(Get-WindowsCapability -Path $MountPath | Where-Object { $_.State -eq 'Installed' } | ForEach-Object { $_.Name })
     $failures = 0
-    foreach ($cap in (Get-CapabilitiesToRemove -Installed $installed -LanguageCode $LanguageCode -Core:$Core)) {
+    $capabilities = @(Get-CapabilitiesToRemove -Installed $installed -LanguageCode $LanguageCode -Core:$Core)
+    $completed = 0
+    Write-BuildProgress -Stage capabilities -Percent 0 -Label 'Removing capabilities'
+    foreach ($cap in $capabilities) {
         Write-Host "  - $cap"
         try { Remove-WindowsCapability -Path $MountPath -Name $cap -ErrorAction Stop | Out-Null }
         catch { Write-Warning "Could not remove capability $cap : $($_.Exception.Message)"; $failures++ }
+        $completed++
+        Write-BuildProgress -Stage capabilities -Percent ([int](100 * $completed / $capabilities.Count)) -Label "Removing capabilities ($completed/$($capabilities.Count))"
     }
+    Write-BuildProgress -Stage capabilities -Percent 100 -Label 'Capabilities processed'
     return $failures
 }
 
@@ -2442,14 +2740,108 @@ function Invoke-ComponentCleanup {
         [switch]$NoResetBase
     )
     Write-Host "Cleaning up the component store (this takes a while)..."
+    Write-BuildProgress -Stage cleanup -Percent -1 -Label 'Cleaning the component store'
     $cleanupArgs = @("/Image:$MountPath", '/Cleanup-Image', '/StartComponentCleanup')
     if (-not $NoResetBase) { $cleanupArgs += '/ResetBase' }
-    $rc = Invoke-Native -FilePath 'dism.exe' -ArgumentList $cleanupArgs
+    $rc = Invoke-Native -FilePath 'dism.exe' -ArgumentList $cleanupArgs -StreamOutput
     if ($rc -ne 0) {
         Write-Warning "Component cleanup returned $rc (the image is still valid, just larger)."
+        Write-BuildProgress -Stage cleanup -Percent 100 -Label 'Cleanup attempt finished with a warning'
         return $false
     }
+    Write-BuildProgress -Stage cleanup -Percent 100 -Label 'Component store cleaned'
     return $true
+}
+
+function Initialize-Wimlib {
+    # Portable, version-pinned tool cache inside the project. No installation.
+    if (-not [Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+        throw 'The pinned wimlib backend currently supports x64 hosts; select DISM on other hosts.'
+    }
+    $cache = Join-Path $repoRoot 'tools\wimlib\1.14.5'
+    $exe = Join-Path $cache 'wimlib-imagex.exe'
+    $dll = Join-Path $cache 'libwim-15.dll'
+    $exeHash = '34C0C4165591AD1F592837ED99D08273C58D6ED3FE0ED6360CF34E7B0739B353'
+    $dllHash = 'BA853EE1E3FC5F5798581F02E8E066BA07A0A2375F0BF444FE981431FD508495'
+    if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $dll) -and
+        (Get-Sha256 $exe) -eq $exeHash -and (Get-Sha256 $dll) -eq $dllHash) { return $exe }
+    $stage = Join-Path $repoRoot "tools\wimlib\download-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    try {
+        $zip = Join-Path $stage 'wimlib.zip'
+        Invoke-WebRequest -Uri 'https://wimlib.net/downloads/wimlib-1.14.5-windows-x86_64-bin.zip' -OutFile $zip -UseBasicParsing -ErrorAction Stop
+        if ((Get-Sha256 $zip) -ne '2F446D6FA3866582175F1A22A7BE198EEEE0AEC7ABA5B4E04AD25C99EAE2D265') {
+            throw 'Downloaded wimlib archive does not match the pinned SHA-256.'
+        }
+        Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $stage 'files') -ErrorAction Stop
+        New-Item -ItemType Directory -Path $cache -Force | Out-Null
+        foreach ($name in @('wimlib-imagex.exe', 'libwim-15.dll', 'COPYING.txt', 'COPYING.GPLv3.txt', 'COPYING.LGPL.txt', 'COPYING.libdivsufsort-lite.txt')) {
+            Copy-Item -LiteralPath (Join-Path $stage "files\$name") -Destination $cache -Force -ErrorAction Stop
+        }
+        if ((Get-Sha256 $exe) -ne $exeHash -or (Get-Sha256 $dll) -ne $dllHash) { throw 'Cached wimlib binaries failed verification.' }
+        return $exe
+    } finally { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+function Export-SelectedInstallImage {
+    # Reuse compressed resources in ordinary WIMs instead of recompressing a
+    # whole edition before servicing. Solid ESDs still need a mountable WIM.
+    param(
+        [Parameter(Mandatory=$true)][string]$Source,
+        [Parameter(Mandatory=$true)][int]$Index,
+        [Parameter(Mandatory=$true)][string]$Destination,
+        [ValidateSet('Auto','Dism','Wimlib')][string]$CompressionEngine = 'Auto'
+    )
+    if ($Index -lt 1) { throw 'An edition index must be positive.' }
+    $temp = $Destination + '.edition.tmp.wim'
+    if ((Test-Path -LiteralPath $Destination) -or (Test-Path -LiteralPath $temp)) { throw 'An edition export already exists. Stop its writer and clean up before retrying.' }
+    $wimlib = $null
+    if ($CompressionEngine -ne 'Dism') {
+        try { $wimlib = Initialize-Wimlib } catch {
+            if ($CompressionEngine -eq 'Wimlib') { throw }
+            Write-Warning "wimlib unavailable for edition export; using DISM: $($_.Exception.Message)"
+        }
+    }
+    Write-BuildProgress -Stage edition -Percent 0 -Label 'Exporting the selected edition'
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    if ($wimlib) {
+        $file = [IO.File]::OpenRead($Source)
+        try {
+            $header = New-Object byte[] 208
+            if ($file.Read($header,0,208) -ne 208 -or [Text.Encoding]::ASCII.GetString($header,0,8) -ne "MSWIM`0`0`0") { throw 'Invalid source WIM header.' }
+        } finally { $file.Dispose() }
+        $version = [BitConverter]::ToUInt32($header,12)
+        $flags = [BitConverter]::ToUInt32($header,16)
+        $compression = if ($version -eq 0x10d00 -and ($flags -band 0x40000)) { 'LZX' } else { 'XPRESS' }
+        Write-Host "Edition export: wimlib $compression; reusable compressed resources are copied; solid sources are converted."
+        $rc = Invoke-Native -FilePath $wimlib -ArgumentList @('export',$Source,[string]$Index,$temp,"--compress=$compression",'--check') -StreamOutput
+        Assert-CommandExitCode -Label 'wimlib edition export' -ExitCode $rc
+    } else {
+        Invoke-DismChecked -Label 'Edition export' '/Export-Image' "/SourceImageFile:$Source" "/SourceIndex:$Index" "/DestinationImageFile:$temp" '/Compress:fast' '/CheckIntegrity'
+    }
+    if (-not (Test-Path -LiteralPath $temp) -or (Get-Item -LiteralPath $temp).Length -le 0) { throw 'Edition export did not create an image.' }
+    Move-Item -LiteralPath $temp -Destination $Destination -ErrorAction Stop
+    Write-Host "Edition export completed in $([Math]::Round($timer.Elapsed.TotalSeconds,1)) seconds."
+    Write-BuildProgress -Stage edition -Percent 100 -Label 'Selected edition exported'
+}
+
+function Get-WimlibExportArguments {
+    param(
+        [string]$Source, [string]$Destination, $BuildProfile,
+        [ValidateRange(1, 200)][int]$CompressionLevel = 100,
+        [ValidateRange(0, 1024)][int]$CompressionThreads = 0
+    )
+    $arguments = @('export', $Source, '1', $Destination, '--check')
+    switch ($BuildProfile.Compress) {
+        'maximum' { $arguments += @('--compress=LZMS', '--solid', "--solid-compress=LZMS:$CompressionLevel", '--solid-chunk-size=64M') }
+        'balanced' { $arguments += "--compress=LZX:$CompressionLevel" }
+        'fast' { $arguments += '--compress=XPRESS' }
+        'none' { $arguments += '--compress=none' }
+        default { throw 'Unknown compression profile.' }
+    }
+    # Omission lets wimlib choose all available CPUs subject to memory limits.
+    if ($CompressionThreads -gt 0) { $arguments += "--threads=$CompressionThreads" }
+    return $arguments
 }
 
 function Export-FinalInstallImage {
@@ -2458,23 +2850,86 @@ function Export-FinalInstallImage {
     # transient locks antivirus / the search indexer put on fresh files.
     param(
         [Parameter(Mandatory = $true)][string]$WorkRoot,
-        [Parameter(Mandatory = $true)]$BuildProfile
+        [Parameter(Mandatory = $true)]$BuildProfile,
+        [ValidateSet('Auto', 'Dism', 'Wimlib')][string]$CompressionEngine = 'Auto',
+        [ValidateRange(1, 200)][int]$CompressionLevel = 100,
+        [ValidateRange(0, 1024)][int]$CompressionThreads = 0
     )
     $source = "$WorkRoot\sources\install.wim"
     $final = "$WorkRoot\sources\$($BuildProfile.ImageFileName)"
     $temp = "$WorkRoot\sources\install_export.$(if ($BuildProfile.UseEsd) { 'esd' } else { 'wim' })"
+    if (Test-Path -LiteralPath $temp) { throw "Previous export exists: $temp. Confirm its writer has stopped before removing it and retrying." }
     Write-Host "Exporting the final image ($($BuildProfile.Compress) -> $($BuildProfile.ImageFileName))..."
-    Invoke-DismChecked -Label 'DISM export' '/Export-Image' "/SourceImageFile:$source" '/SourceIndex:1' "/DestinationImageFile:$temp" "/Compress:$($BuildProfile.ExportCompress)" '/CheckIntegrity'
+    $wimlib = $null
+    if ($CompressionEngine -ne 'Dism') {
+        try { $wimlib = Initialize-Wimlib }
+        catch {
+            if ($CompressionEngine -eq 'Wimlib') { throw }
+            Write-Warning "wimlib unavailable; retaining DISM compression: $($_.Exception.Message)"
+        }
+    }
+    Write-BuildProgress -Stage compress -Percent 0 -Label 'Compressing the install image'
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    if ($wimlib) {
+        Write-Host "Compression backend: wimlib; level $CompressionLevel; threads $(if ($CompressionThreads) { $CompressionThreads } else { 'automatic (CPU and memory)' })."
+        $arguments = Get-WimlibExportArguments -Source $source -Destination $temp -BuildProfile $BuildProfile -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
+        $rc = Invoke-Native -FilePath $wimlib -ArgumentList $arguments -StreamOutput
+        Assert-CommandExitCode -Label 'wimlib export' -ExitCode $rc
+    } else {
+        Invoke-DismChecked -Label 'DISM export' '/Export-Image' "/SourceImageFile:$source" '/SourceIndex:1' "/DestinationImageFile:$temp" "/Compress:$($BuildProfile.ExportCompress)" '/CheckIntegrity'
+    }
+    if (-not (Test-Path -LiteralPath $temp) -or (Get-Item -LiteralPath $temp).Length -le 0) { throw 'Export did not produce an image; keeping the working WIM.' }
+    Write-Host "Image export completed in $([Math]::Round($timer.Elapsed.TotalSeconds, 1)) seconds."
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
-            Remove-Item -LiteralPath $source -Force -ErrorAction Stop
-            Move-Item -LiteralPath $temp -Destination $final -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $temp) { Move-Item -LiteralPath $temp -Destination $final -Force -ErrorAction Stop }
+            if ($source -ne $final) { Remove-Item -LiteralPath $source -Force -ErrorAction Stop }
+            Write-BuildProgress -Stage compress -Percent 100 -Label 'Install image compressed'
             return $final
         } catch {
             if ($attempt -eq 5) { throw "Could not replace the install image: $($_.Exception.Message)" }
             Start-Sleep -Seconds (2 * $attempt)
         }
     }
+}
+
+function Invoke-BootImageFilePatch {
+    # Hardware bypass uses three small hive files. Avoid mounting the entire
+    # Setup image, or loading any hive into the active registry, for these edits.
+    param([string]$BootWim, [string]$Wimlib)
+    $ErrorActionPreference = 'Stop'
+    $index = Get-BootWimIndex -BootWimPath $BootWim
+    $temp = Join-Path $repoRoot "logs\boot-patch-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $temp -Force | Out-Null
+    $map = @{ zDEFAULT = @('DEFAULT', '/Windows/System32/config/DEFAULT'); zNTUSER = @('NTUSER.DAT', '/Users/Default/NTUSER.DAT'); zSYSTEM = @('SYSTEM', '/Windows/System32/config/SYSTEM'); zSOFTWARE = @('SOFTWARE', '/Windows/System32/config/SOFTWARE') }
+    try {
+        $entries = @((Get-TweakCatalog | Where-Object Id -eq 'HardwareBypass').Set | ForEach-Object { ConvertFrom-TweakEntry $_ })
+        $groups = @($entries | Group-Object { ($_.Path -split '\\')[1] })
+        $paths = @($groups | ForEach-Object {
+            if (-not $map.ContainsKey($_.Name)) { throw "Unsupported boot hive: $($_.Name)" }
+            $map[$_.Name][1]
+        })
+        $rc = Invoke-Native -FilePath $Wimlib -ArgumentList (@('extract', $BootWim, "$index") + $paths + @("--dest-dir=$temp", '--strict-acls')) -StreamOutput
+        Assert-CommandExitCode -Label 'Boot hive extraction' -ExitCode $rc
+        $completed = 0
+        Write-BuildProgress -Stage boot -Percent 25 -Label 'Patching Windows Setup'
+        foreach ($group in $groups) {
+            $target = $map[$group.Name]
+            $file = Join-Path $temp $target[0]
+            $values = @($group.Group | ForEach-Object {
+                if ($_.Type -ne 'REG_DWORD') { throw 'Boot file patch supports DWORD settings only.' }
+                @{ SubKey = ($_.Path -split '\\', 3)[2]; Name = $_.Name; Value = [uint32]$_.Value }
+            })
+            Set-OfflineHiveDwordValues -HiveFile $file -Entries $values
+            # Strict capture is essential: --no-acls would erase image file ACLs.
+            $command = "add `"$file`" `"$($target[1])`""
+            $rc = Invoke-Native -FilePath $Wimlib -ArgumentList @('update', $BootWim, "$index", '--strict-acls', "--command=$command") -StreamOutput
+            Assert-CommandExitCode -Label 'Boot hive update' -ExitCode $rc
+            $completed++
+            Write-BuildProgress -Stage boot -Percent ([int](25 + 75 * $completed / $groups.Count)) -Label "Patching Setup hives ($completed/$($groups.Count))"
+        }
+        return 0
+    } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 function Invoke-BootImageStage {
@@ -2489,6 +2944,11 @@ function Invoke-BootImageStage {
     Write-Host "Patching boot.wim (Windows Setup hardware checks)..."
     $bootWim = "$WorkRoot\sources\boot.wim"
     Clear-FileReadOnly -FilePath $bootWim
+    if (-not $DriverPath -and (Test-Path -LiteralPath (Join-Path ([Environment]::SystemDirectory) 'offreg.dll'))) {
+        $wimlib = $null
+        try { $wimlib = Initialize-Wimlib } catch { Write-Verbose "Using mounted Setup servicing: $_" }
+        if ($wimlib) { return Invoke-BootImageFilePatch -BootWim $bootWim -Wimlib $wimlib }
+    }
     $bootIndex = Get-BootWimIndex -BootWimPath $bootWim
     $mountDir = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
     Mount-WindowsImage -ImagePath $bootWim -Index $bootIndex -Path $mountDir | Out-Null
@@ -2516,6 +2976,13 @@ function New-Tiny11Iso {
         [string]$Label = 'TINY11',
         [switch]$NoPrompt
     )
+    # A failed cleanup must never package original/intermediate images as well
+    # as the patched image (upstream oversized-media issue #318).
+    $installFiles = @(Get-ChildItem -LiteralPath (Join-Path $WorkRoot 'sources') -File -ErrorAction Stop |
+        Where-Object { $_.Name -match '^install.*\.(wim|esd|swm)$' })
+    if ($installFiles.Count -ne 1 -or $installFiles[0].Name -notin 'install.wim', 'install.esd') {
+        throw "ISO media must contain exactly one final install.wim or install.esd; found: $($installFiles.Name -join ', ')."
+    }
     $found = Find-Oscdimg
     $oscdimg = Initialize-Oscdimg
     $bootArg = Get-OscdimgBootArgument -ImageRoot $WorkRoot -Architecture $Architecture -NoPrompt:$NoPrompt
@@ -2523,14 +2990,17 @@ function New-Tiny11Iso {
     if ($Label.Length -gt 32) { $Label = $Label.Substring(0, 32) }
     if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
     Write-Host "Creating ISO $OutputIso ..."
-    # Out-Host: oscdimg's progress lines must not become part of the return value.
-    & $oscdimg '-m' '-o' '-u2' '-udfver102' "-l$Label" $bootArg $WorkRoot $OutputIso | Out-Host
-    $exitCode = $LASTEXITCODE
-    if ($found.Source -eq 'download') { Remove-Item -LiteralPath $oscdimg -Force -ErrorAction SilentlyContinue }
+    Write-BuildProgress -Stage iso -Percent 0 -Label 'Writing the ISO'
+    try {
+        $exitCode = Invoke-Native -FilePath $oscdimg -ArgumentList @('-m', '-o', '-u2', '-udfver102', "-l$Label", $bootArg, $WorkRoot, $OutputIso) -StreamOutput
+    } finally {
+        if ($found.Source -eq 'download') { Remove-Item -LiteralPath $oscdimg -Force -ErrorAction SilentlyContinue }
+    }
     $bytes = if (Test-Path -LiteralPath $OutputIso) { (Get-Item -LiteralPath $OutputIso).Length } else { [long]0 }
     if (-not (Test-IsoResult -ExitCode $exitCode -IsoExists ($bytes -gt 0) -IsoBytes $bytes -MinBytes 300MB)) {
         throw "ISO creation failed (oscdimg exit $exitCode, $bytes bytes)."
     }
+    Write-BuildProgress -Stage iso -Percent 100 -Label 'ISO written'
     return $bytes
 }
 

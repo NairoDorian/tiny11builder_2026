@@ -6,6 +6,10 @@
 
 # Downloaded tools
 oscdimg.exe
+tools/wimlib/
+tools/discutils/
+tools/PSScriptAnalyzer/
+artifacts/
 
 # PowerShell temporary
 __pycache__/

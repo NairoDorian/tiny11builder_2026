@@ -1,0 +1,15 @@
+{
+  "Index": 1,
+  "Name": "Windows 11 Pro",
+  "Edition": "Professional",
+  "Architecture": "amd64",
+  "Build": 26300,
+  "Version": "10.0.26300.9457",
+  "DisplayVersion": "26H2",
+  "Is24H2OrLater": true,
+  "Languages": [
+    "en-US"
+  ],
+  "Language": "en-US",
+  "SizeBytes": 23100713129
+}

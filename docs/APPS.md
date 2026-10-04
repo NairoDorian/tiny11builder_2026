@@ -135,7 +135,9 @@ entry would match them:
 | App | Default | Gaming | PrivacyPlus | Minimal-VM / Core |
 |---|---|---|---|---|
 | Microsoft Store (`Microsoft.WindowsStore`, `Microsoft.StorePurchaseApp`) | kept | kept | kept | removed |
-| Windows Security app (`Microsoft.SecHealthUI`) | kept | kept | kept | removed |
+| Windows Security app (`Microsoft.SecHealthUI`) | kept | kept | kept | kept on build 26100+; removal attempted on older media |
+
+On build 26100 and later, the protected Windows Security app is retained even with `RemoveDefender=true`. Defender policies/services are configured separately; retaining the UI does not change those choices. Tamper protection can prevent Defender-disable settings from taking effect.
 | Xbox app, Game Bar, Xbox sign-in | removed | **kept** | removed | removed |
 | Edge browser | removed | removed | removed | removed |
 | Edge WebView2 runtime | kept | kept | kept | removed |

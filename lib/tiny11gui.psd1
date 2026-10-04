@@ -21,6 +21,8 @@
         'Get-GuiFlagInfo',
         'Get-GuiLineKind',
         'Get-GuiPresetDescription',
+        'Get-GuiStepProgress',
+        'Get-GuiTiming',
         'Get-GuiTweakRows',
         'Get-NtfsDrives',
         'Get-SetupMediaDrives',

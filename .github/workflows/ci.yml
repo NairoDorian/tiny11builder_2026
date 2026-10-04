@@ -28,7 +28,7 @@ jobs:
     name: PowerShell 5.1 checks
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Parse + command resolution
         shell: powershell
@@ -37,6 +37,14 @@ jobs:
       - name: Unit tests
         shell: powershell
         run: .\scripts\test-core-helpers.ps1
+
+      - name: File-only ISO reader and progress tests
+        shell: powershell
+        run: .\scripts\test-media-progress.ps1
+
+      - name: Real WIM and ESD export tests
+        shell: powershell
+        run: .\scripts\test-export-pipeline.ps1
 
       - name: Generated files are up to date
         shell: powershell
@@ -59,7 +67,7 @@ jobs:
 
       - name: Upload GUI screenshot
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: gui-preview
           path: ${{ runner.temp }}/gui.png
@@ -69,7 +77,7 @@ jobs:
     name: PowerShell 7 checks
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Parse + command resolution
         shell: pwsh
@@ -78,6 +86,14 @@ jobs:
       - name: Unit tests
         shell: pwsh
         run: .\scripts\test-core-helpers.ps1
+
+      - name: File-only ISO reader and progress tests
+        shell: pwsh
+        run: .\scripts\test-media-progress.ps1
+
+      - name: Real WIM and ESD export tests
+        shell: pwsh
+        run: .\scripts\test-export-pipeline.ps1
 
       - name: GUI renders
         shell: pwsh
@@ -94,7 +110,7 @@ jobs:
     name: XML / JSON well-formed
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
       - name: Answer files
         run: |
           for f in autounattend.xml autounattend-arm64.xml; do python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "$f" && echo "ok  $f"; done

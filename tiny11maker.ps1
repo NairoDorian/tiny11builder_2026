@@ -1,10 +1,10 @@
-﻿<#
+<#
 .SYNOPSIS
     Builds a trimmed-down, still serviceable Windows 11 ISO (tiny11).
 
 .DESCRIPTION
     Tiny11 Builder - Ultimate Edition. Takes an official Windows 11 ISO
-    (24H2 / 25H2 and older 22H2/23H2 media), exports the chosen edition,
+    (26H2 / 25H2 / 24H2 and older 22H2/23H2 media), exports the chosen edition,
     removes bloat apps, Edge, OneDrive and AI features, applies the offline
     registry catalog (data\tweaks.psd1), bakes in an answer file that skips
     the Microsoft-account/network OOBE and hardware checks, and writes a
@@ -29,6 +29,10 @@
 
 .PARAMETER SCRATCH
     Drive letter for the work folders (default: the drive this script is on). NTFS only.
+
+.PARAMETER WorkDirectory
+    Optional absolute NTFS folder for an isolated build. Must be new or empty.
+    Work files and image mounts stay below this folder; other builds are preserved.
 
 .PARAMETER Index
     Image index to build. See -Edition for selecting by name.
@@ -71,7 +75,15 @@
     Folder of .inf drivers injected into the install and setup images (e.g. Intel RST/VMD).
 
 .PARAMETER Compress
-    recovery (install.esd, smallest, default) | max | fast | none.
+    maximum (install.esd, smallest, default) | balanced | fast | none.
+
+.PARAMETER CompressionEngine
+    Auto prefers the portable, SHA-256-pinned wimlib compressor and falls back
+    to DISM. Wimlib requires that backend; Dism selects Microsoft servicing.
+.PARAMETER CompressionLevel
+    wimlib compression effort, 1-200, default 100 (high). Does not change DISM.
+.PARAMETER CompressionThreads
+    wimlib threads. Zero automatically uses available CPUs within memory limits.
 
 .PARAMETER Fast
     fast compression and no component cleanup (quick test builds).
@@ -143,6 +155,7 @@
 param (
     [Parameter(Position = 0)][string]$ISO,
     [Parameter(Position = 1)][ValidatePattern('^[c-zC-Z]:?$')][string]$SCRATCH,
+    [string]$WorkDirectory,
     [int]$Index,
     [string]$Edition,
     [string]$Preset = 'Default',
@@ -156,7 +169,10 @@ param (
     [switch]$DisableDriverUpdates,
     [switch]$EnableNetFx3,
     [string]$DriverPath,
-    [ValidateSet('recovery', 'max', 'fast', 'none')][string]$Compress,
+    [ValidateSet('maximum', 'balanced', 'fast', 'none', 'recovery', 'max')][string]$Compress,
+    [ValidateSet('Auto', 'Dism', 'Wimlib')][string]$CompressionEngine = 'Auto',
+    [ValidateRange(1, 200)][int]$CompressionLevel = 100,
+    [ValidateRange(0, 1024)][int]$CompressionThreads = 0,
     [switch]$Fast,
     [string]$OutputIso,
     [switch]$NoPrompt,
@@ -203,6 +219,20 @@ if ($ISO) { $ISO = $ISO.Trim().Trim('"') }
 if ($ISO -match '^[c-zC-Z]:?\\?$') { $ISO = $ISO.Substring(0, 1) }
 if ($SCRATCH) { $SCRATCH = $SCRATCH.Substring(0, 1) }
 $ScratchDisk = if ($SCRATCH) { "${SCRATCH}:" } else { (Split-Path -Qualifier $PSScriptRoot) }
+$ScratchRoot = "$ScratchDisk\"
+if ($WorkDirectory) {
+    if (-not [IO.Path]::IsPathRooted($WorkDirectory) -or $WorkDirectory -notmatch '^[a-zA-Z]:\\') {
+        throw '-WorkDirectory must be an absolute folder path on a local NTFS drive.'
+    }
+    $ScratchRoot = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\')
+    if ($ScratchRoot -eq [IO.Path]::GetPathRoot($ScratchRoot).TrimEnd('\')) {
+        throw '-WorkDirectory must be a folder, not a drive root.'
+    }
+    if ((Test-Path -LiteralPath $ScratchRoot) -and @(Get-ChildItem -LiteralPath $ScratchRoot -Force -ErrorAction Stop).Count) {
+        throw '-WorkDirectory must be new or empty. Stop any earlier writer before choosing another folder.'
+    }
+    $ScratchDisk = Split-Path -Qualifier $ScratchRoot
+}
 if (-not $OutputIso) { $OutputIso = Join-Path $PSScriptRoot 'tiny11.iso' }
 if ($ZeroTouch -and -not $PSBoundParameters.ContainsKey('NoPrompt')) { $NoPrompt = $true }
 
@@ -268,8 +298,8 @@ $Script:buildWarnings = 0
 $Script:transcriptStarted = $false
 $Script:defenderExclusions = @()
 $Script:source = $null
-$workRoot = "$ScratchDisk\tiny11"
-$mountDir = "$ScratchDisk\scratchdir"
+$workRoot = Join-Path $ScratchRoot 'tiny11'
+$mountDir = Join-Path $ScratchRoot 'scratchdir'
 
 trap {
     Write-Host ""
@@ -277,7 +307,7 @@ trap {
     if ($_.InvocationInfo.PositionMessage) { Write-Host $_.InvocationInfo.PositionMessage -ForegroundColor DarkGray }
     Write-Warning "Cleaning up (unloading hives, discarding the mounted image)..."
     $isoToEject = if ($Script:source -and $Script:source.MountedByScript) { $Script:source.IsoPath } else { $null }
-    Invoke-EmergencyCleanup -ScratchDisk $ScratchDisk -IsoImagePath $isoToEject -DefenderExclusions $Script:defenderExclusions
+    Invoke-EmergencyCleanup -ScratchDisk $ScratchRoot -IsoImagePath $isoToEject -DefenderExclusions $Script:defenderExclusions
     if ($Script:transcriptStarted) { try { Stop-Transcript | Out-Null } catch { Write-Verbose 'Transcript already stopped.' } }
     exit 1
 }
@@ -289,7 +319,7 @@ try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { Write-V
 Start-Transcript -Path (Join-Path $logDir "tiny11_$(Get-Date -f yyyyMMdd_HHmmss).log") | Out-Null
 $Script:transcriptStarted = $true
 $buildStart = Get-Date
-[System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal
+# Inherit process priority; the user controls host CPU scheduling.
 
 $Host.UI.RawUI.WindowTitle = "Tiny11 image creator - Ultimate Edition $Script:Version"
 Write-Host "=== Tiny11 image creator - Ultimate Edition $Script:Version ===" -ForegroundColor Cyan
@@ -298,8 +328,8 @@ Write-Host ""
 
 #---------[ Pre-flight ]---------#
 Test-Prerequisites
-Clear-StaleBuildState
-if ($SCRATCH) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
+if (-not $WorkDirectory) { Clear-StaleBuildState }
+if ($SCRATCH -or $WorkDirectory) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
 
 #---------[ Source & edition ]---------#
 $Script:source = Resolve-WindowsSource -IsoParameter $ISO
@@ -308,6 +338,7 @@ $sourceImage = if (Test-Path "$DriveLetter\sources\install.wim") { "$DriveLetter
 $sourceImages = @(Get-WindowsImage -ImagePath $sourceImage)
 $imageIndex = Select-ImageIndex -Images $sourceImages -Index $Index -Edition $Edition -NonInteractive:$Yes
 $info = Get-ImageInfo -ImagePath $sourceImage -Index $imageIndex
+$sourceMetadata = Get-InstallImageMetadata -ImagePath $sourceImage -Index $imageIndex
 $architecture = $info.Architecture
 $languageCode = $info.Language
 Write-Host "Selected: [$imageIndex] $($info.Name) | $($info.DisplayVersion) build $($info.Version) | $architecture | $languageCode"
@@ -366,6 +397,8 @@ if ($Custom) {
     }
 }
 
+Test-OfflineHiveLoading -ScratchRoot $ScratchRoot
+
 #---------[ Copy media & export the chosen edition ]---------#
 Write-Host "Copying installation media (without the install image)..."
 if (Test-Path $workRoot) { Remove-Item -Path $workRoot -Recurse -Force }
@@ -374,19 +407,19 @@ Invoke-Robocopy -Source "$DriveLetter\" -Destination $workRoot -ExcludeFile @('i
 
 Write-Host "Exporting edition $imageIndex from $(Split-Path $sourceImage -Leaf) (this also handles ESD media)..."
 $wimFilePath = "$workRoot\sources\install.wim"
-Export-WindowsImage -SourceImagePath $sourceImage -SourceIndex $imageIndex -DestinationImagePath $wimFilePath -CompressionType fast | Out-Null
+Export-SelectedInstallImage -Source $sourceImage -Index $imageIndex -Destination $wimFilePath -CompressionEngine $CompressionEngine
 if (-not (Test-Path $wimFilePath)) { throw "Export of the selected edition failed: $wimFilePath was not created." }
 
 Dismount-WindowsSource -Source $Script:source
 
 #---------[ Mount install.wim ]---------#
 Write-Host "Mounting the Windows image..."
-$null = Initialize-ScratchWorkspace -ScratchRoot $ScratchDisk
-Mount-WindowsImage -ImagePath $wimFilePath -Index 1 -Path $mountDir | Out-Null
+$null = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
+Invoke-DismChecked -Label 'Image mount' '/Mount-Image' "/ImageFile:$wimFilePath" '/Index:1' "/MountDir:$mountDir"
 Assert-MountedImage -MountPath $mountDir
 
 #---------[ Apps, Edge, OneDrive, capabilities ]---------#
-$apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -Custom:$Custom -KeepApps:$KeepApps
+$apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -ImageBuild $info.Build -Custom:$Custom -KeepApps:$KeepApps
 $Script:buildWarnings += $apps.Failures
 
 if ($flags.RemoveEdge) {
@@ -441,10 +474,11 @@ Write-Host "Committing and unmounting the Windows image..."
 if (-not (Invoke-SafeDismountImage -Path $mountDir -Save)) {
     throw "Failed to commit/unmount the install image."
 }
-$null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile
+$null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile -CompressionEngine $CompressionEngine -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
+Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata
 
 #---------[ boot.wim, answer file, ISO ]---------#
-$Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchDisk -DriverPath $DriverPath
+$Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
 Write-UnattendFile -Xml $unattendXml -Path "$workRoot\autounattend.xml"
 $isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture `
     -Label "TINY11_$($info.DisplayVersion)_$($architecture.ToUpperInvariant())" -NoPrompt:$NoPrompt
@@ -452,7 +486,7 @@ $isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architectur
 $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
     builder     = "tiny11maker.ps1 $Script:Version"
     source      = @{ image = $sourceImage; index = $imageIndex; name = $info.Name; edition = $info.Edition; version = $info.Version; displayVersion = $info.DisplayVersion; architecture = $architecture; language = $languageCode }
-    options     = @{ preset = $Preset; compress = $buildProfile.Compress; custom = [bool]$Custom; keep = $Keep; remove = $Remove; lowRam = [bool]$LowRam; disableDriverUpdates = [bool]$DisableDriverUpdates; netFx3 = [bool]$EnableNetFx3; drivers = [bool]$DriverPath; zeroTouch = [bool]$ZeroTouch; interactiveOobe = [bool]$InteractiveOobe; browser = $Browser; skipTweak = $SkipTweak }
+    options     = @{ preset = $Preset; compress = $buildProfile.Compress; compressionEngine = $CompressionEngine; compressionLevel = $CompressionLevel; compressionThreads = $CompressionThreads; custom = [bool]$Custom; keep = $Keep; remove = $Remove; lowRam = [bool]$LowRam; disableDriverUpdates = [bool]$DisableDriverUpdates; netFx3 = [bool]$EnableNetFx3; drivers = [bool]$DriverPath; zeroTouch = [bool]$ZeroTouch; interactiveOobe = [bool]$InteractiveOobe; browser = $Browser; skipTweak = $SkipTweak }
     flags       = $flags
     removedApps = $apps.Removed
     tweakGroups = $tweaks.Applied

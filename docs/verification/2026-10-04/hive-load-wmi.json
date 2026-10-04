@@ -1,0 +1,25 @@
+﻿{
+    "Started":  "2026-10-04T18:31:42.8234374+02:00",
+    "PID":  28344,
+    "Attempt":  "wmi",
+    "Success":  true,
+    "Writers":  [
+
+                ],
+    "Mounts":  [
+
+               ],
+    "InJob":  true,
+    "RestrictedToken":  false,
+    "Hive":  "C:\\.temp\\probe-28344\\software.hiv",
+    "PathLength":  33,
+    "LoadExit":  0,
+    "LoadOutput":  [
+                       "The operation completed successfully.\r"
+                   ],
+    "UnloadExit":  0,
+    "UnloadOutput":  [
+                         "The operation completed successfully.\r"
+                     ],
+    "Finished":  "2026-10-04T18:31:43.3737552+02:00"
+}

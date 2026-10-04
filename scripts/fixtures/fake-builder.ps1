@@ -1,4 +1,4 @@
-﻿# Test fixture: stands in for tiny11maker.ps1 in the GUI tests (and for the
+# Test fixture: stands in for tiny11maker.ps1 in the GUI tests (and for the
 # documentation screenshot of a finished build). It only prints the lines the
 # real builder prints and writes a small file to $env:T11_FAKE_OUT - it never
 # mounts, loads or changes anything. Exit code: $env:T11_FAKE_EXIT (default 0).
@@ -7,7 +7,7 @@ if (-not $env:T11_FAKE_DOCS) { Write-Host "FAKE args: $($args -join ' ')" }
 $lines = if ($env:T11_FAKE_DOCS) {
     @(
         '=== Tiny11 image creator - Ultimate Edition 2026.09 ==='
-        '    Preset: Gaming | Compression: recovery | Output: C:\tiny11\tiny11.iso'
+        '    Preset: Gaming | Compression: maximum | Output: C:\tiny11\tiny11.iso'
         'Checking prerequisites...'
         'Prerequisites OK.'
         'Selected: [6] Windows 11 Pro | 25H2 build 10.0.26200.6584 | amd64 | en-GB'
@@ -28,19 +28,26 @@ $lines = if ($env:T11_FAKE_DOCS) {
         'Removing telemetry scheduled tasks...'
         'Cleaning up the component store (this takes a while)...'
         'Committing and unmounting the Windows image...'
-        'Exporting the final image (recovery -> install.esd)...'
+        'Exporting the final image (maximum -> install.esd)...'
         'Patching boot.wim (Windows Setup hardware checks)...'
         'Creating ISO C:\tiny11\tiny11.iso ...'
     )
 } else {
     @('Checking prerequisites...', 'Selected: [6] Windows 11 Pro', 'Copying installation media (without the install image)...',
-      'Mounting the Windows image...', 'Loading the image registry...', 'Exporting the final image (recovery -> install.esd)...', 'Creating ISO X ...')
+      'Mounting the Windows image...', 'Loading the image registry...', 'Exporting the final image (maximum -> install.esd)...', 'Creating ISO X ...')
 }
 foreach ($line in $lines) {
     Write-Host $line
+    if ($line -like 'Exporting the final image*') { Write-Host 'Archiving file data: 256 MiB of 512 MiB (50%) done' }
+    if ($line -like 'Loading the image registry*') { Write-Host '__TINY11_PROGRESS__ {"Stage":"registry","Percent":50,"Label":"Applying tweaks (2/4)"}' }
     Start-Sleep -Milliseconds 60
 }
 if (-not $env:T11_FAKE_DOCS) { Write-Warning 'a fake warning' }
+if (-not $env:T11_FAKE_DOCS) {
+    Import-Module (Join-Path $PSScriptRoot '..\..\lib\tiny11utils.psm1') -DisableNameChecking
+    $nativeHost = (Get-Process -Id $PID).Path
+    $null = Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', '[Console]::Error.WriteLine("100% complete"); exit 0') -StreamOutput
+}
 if ($env:T11_FAKE_OUT) { Set-Content -Path $env:T11_FAKE_OUT -Value 'fake iso' }
 Write-Host '===== BUILD SUMMARY ====='
 if ($env:T11_FAKE_DOCS) {

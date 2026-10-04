@@ -1,4 +1,59 @@
 # Changelog
+
+## Unreleased - fresh-build safety and diagnostics
+
+- Add isolated `-WorkDirectory` support, preserving other build folders and
+  permitting short offline-work paths without changing live Windows settings.
+- Test a disposable offline hive before copying/mounting the installation image;
+  preserve native errors and explain the reproduced launch-context failure.
+- Validate the final image's edition, language, product and version XML against
+  its source before ISO creation. Refuse duplicate/intermediate install images.
+- Remove the automatic CPU-priority adjustment and the cross-shell scratch
+  deletion fallback; refuse deleting an image that remains mounted.
+- Document controlled hive-load tests, upstream compression/duplicate-image/
+  cleanup/Setup reports and independent inspection of a fresh patched ISO.
+## Unreleased - faster image preparation and clearer progress
+
+- Reuse compressed resources when exporting an edition from an ordinary WIM;
+  convert solid ESDs to a standard servicing WIM. Keep maximum compression for
+  the final export. Preserve sources and refuse unfinished destination files.
+- Prefer pinned wimlib 1.14.5 for parallel solid LZMS final compression, with
+  CPU/memory autodetection, configurable effort/threads and a DISM fallback.
+- Patch Setup's small registry hive files without mounting the entire boot WIM
+  when no drivers need injection; preserve file security metadata.
+- Rename compression choices to `maximum`, `balanced`, `fast`, `none`;
+  retain legacy command/profile compatibility and required DISM API names.
+- Read ISO editions from the WIM/ESD XML resource through bundled DiscUtils
+  0.16.13. No mount, cache, first-use download or DISM scan. Filename release
+  hints appear immediately; actual image metadata determines builds/indexes.
+- Load editions asynchronously, cancel/dispose the previous reader before
+  another starts, and invalidate edition selections when the source changes.
+- Add overall and step progress bars, native percentages, item counts,
+  indeterminate loading bars, elapsed time and explicitly estimated ETAs.
+- Update checkout/upload-artifact to 7.0.1. Pin PSScriptAnalyzer 1.25.0 and
+  download only into the project if missing. Development checks skip build
+  media instead of traversing the entire workspace.
+- Add real WIM/ESD exports, malformed ISO/XML and GUI timing regression tests.
+
+## Unreleased - Windows 11 build 26300 compatibility
+
+- Verify the mounted SOFTWARE hive can load and unload before app servicing.
+  Report the underlying registry error instead of DISM's generic parameter
+  error; refuse a conflicting offline hive from another build.
+- Identify build 26300 as Windows 11 26H2 and build 28000 as 26H1;
+  unknown future builds are labelled explicitly instead of silently using 25H2.
+- Stream Oscdimg stdout and stderr as ordinary text in both builders and the
+  GUI. Progress on stderr no longer produces false `ERROR:` lines. Nonzero
+  exit codes and missing or undersized ISOs still fail the build.
+- Defer access-denied offline DWORD writes until hive unload, then use the
+  Windows offline registry library to edit the image file and verify readback.
+  Save atomically; leave registry permissions and host settings unchanged.
+- Keep the protected Windows Security app on build 26100 and newer even when
+  the Defender-off preset is selected; log the retention explicitly. Defender
+  registry settings remain separate and are not a guarantee against tamper protection.
+- Add regression coverage for native stderr, exit codes, timeouts, version
+  detection and Windows Security removal planning.
+
 ## Unreleased - registry stall diagnostics
 
 - Bound registry writes and deletions to 30 seconds. A blocked `reg.exe` now

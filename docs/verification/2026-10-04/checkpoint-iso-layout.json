@@ -1,0 +1,17 @@
+{
+  "ImageFiles": [
+    "sources\\install.esd"
+  ],
+  "HeaderImageCount": 1,
+  "ImageCount": 1,
+  "ContainerVersion": 3584,
+  "HeaderFlags": "80082",
+  "Flags": "Professional",
+  "EditionId": "Professional",
+  "InstallationType": "Client",
+  "ProductType": "WinNT",
+  "ProductSuite": "Terminal Server",
+  "Languages": "<LANGUAGES><LANGUAGE>en-US</LANGUAGE><DEFAULT>en-US</DEFAULT></LANGUAGES>",
+  "InstallBytes": 5348371930,
+  "IsoBytes": 6248947712
+}

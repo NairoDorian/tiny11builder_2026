@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Windows Forms front-end for Tiny11 Builder - Ultimate Edition.
 
@@ -24,8 +24,7 @@
 
     The build runs as a separate, hidden, non-interactive PowerShell process
     of the GUI's own edition (powershell.exe or pwsh.exe, builder + -Yes); its output is streamed into the window. The window never
-    touches the host except "Load editions", which mounts the chosen ISO
-    read-only for a few seconds to list its editions.
+    reads ISO metadata through a file stream without attaching a host volume.
 
     The pure parts (flag metadata, state -> builder arguments, validation,
     tweak toggling, progress parsing) are separate functions covered by
@@ -37,6 +36,7 @@ Add-Type -AssemblyName System.Drawing
 
 $Script:AppTitle = 'Tiny11 Builder - Ultimate Edition'
 $Script:GuiRepoRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
+Import-Module (Join-Path $PSScriptRoot 'tiny11media.psm1') -DisableNameChecking
 
 # Flags the Core builder forces on regardless of the preset (mirrors tiny11Coremaker.ps1).
 $Script:CoreForcedFlags = @('RemoveEdge', 'RemoveWebView', 'RemoveOneDrive', 'RemoveDefender', 'RemoveCapabilities')
@@ -87,8 +87,8 @@ function Get-GuiPresetDescription {
 function Get-GuiCompressionDescription {
     param([string]$Compress)
     switch ($Compress) {
-        'recovery' { 'install.esd (LZMS): smallest ISO, slowest export (10-20 min).' }
-        'max'      { 'install.wim, maximum LZX compression.' }
+        'maximum' { 'install.esd (solid LZMS): smallest ISO; uses available CPUs within memory limits.' }
+        'balanced' { 'install.wim (LZX): balance of size and compression time.' }
         'fast'     { 'install.wim, XPRESS: quick export, larger ISO.' }
         'none'     { 'install.wim, uncompressed: fastest, largest ISO.' }
         default    { '' }
@@ -111,7 +111,10 @@ function Get-GuiDefaultState {
         Preset             = 'Default'
         PresetFile         = ''
         Flags              = $flags
-        Compress           = 'recovery'
+        Compress           = 'maximum'
+        CompressionEngine  = 'Auto'
+        CompressionLevel   = 100
+        CompressionThreads = 0
         Fast               = $false
         NoPrompt           = $false
         DryRun             = $false
@@ -211,6 +214,9 @@ function ConvertTo-GuiBuildRequest {
     }
 
     $a.Compress = $State.Compress
+    if ($State.CompressionEngine) { $a.CompressionEngine = $State.CompressionEngine }
+    if ($State.CompressionLevel) { $a.CompressionLevel = [int]$State.CompressionLevel }
+    if ($State.CompressionThreads) { $a.CompressionThreads = [int]$State.CompressionThreads }
     if ($State.Fast) { $a.Fast = $true }
     if ($State.NoPrompt) { $a.NoPrompt = $true }
     if ($State.Scratch) { $a.SCRATCH = ([string]$State.Scratch).Substring(0, 1) }
@@ -398,6 +404,42 @@ function Get-GuiBuildStage {
     return $null
 }
 
+function Get-GuiStepProgress {
+    # Per-step values are measured; the overall percentage is a stage estimate.
+    param([string]$Line, $CurrentStage)
+    $ranges = @{
+        checks=@(2,5); copy=@(8,12); edition=@(12,22); mount=@(22,26)
+        apps=@(26,34); edge=@(34,36); onedrive=@(36,38); capabilities=@(38,42)
+        drivers=@(42,44); components=@(44,46); winre=@(46,48); winsxs=@(48,55)
+        registry=@(55,60); telemetry=@(60,64); payload=@(61,64); cleanup=@(64,74)
+        commit=@(74,78); compress=@(78,90); boot=@(90,95); iso=@(95,99); hash=@(99,100)
+    }
+    $stage=$null; $percent=-1; $label=$null
+    if ($Line -match '^__TINY11_PROGRESS__ (.+)$') {
+        try {
+            $record=$Matches[1] | ConvertFrom-Json -ErrorAction Stop
+            if ($null -eq $record.Percent -or -not $ranges.ContainsKey([string]$record.Stage) -or [double]$record.Percent -lt -1 -or [double]$record.Percent -gt 100) { return $null }
+            $stage=[string]$record.Stage; $percent=[int]$record.Percent; $label=[string]$record.Label
+        } catch { return $null }
+    } else {
+        $legacy=Get-GuiBuildStage -Line $Line
+        if($legacy) {
+            $stage=switch($legacy.Percent){2{'checks'};5{'checks'};8{'copy'};12{'edition'};22{'mount'};26{'apps'};34{'edge'};36{'onedrive'};38{'capabilities'};42{'drivers'};44{'components'};46{'winre'};48{'winsxs'};55{'registry'};60{'telemetry'};64{'cleanup'};74{'commit'};78{'compress'};90{'boot'};95{'iso'};default{$null}}
+            if(-not $stage){return $null}; $label=$legacy.Label
+        } elseif ($CurrentStage -and $CurrentStage.Id -in 'edition','mount','cleanup','commit','compress','iso','hash') {
+            # Limit parsing to native progress lines; policy descriptions such
+            # as "CPU at 25 %" must never advance the progress bar.
+            if($Line -match '^\s*(?:\[.*?|(?:Archiving file data|Extracting file data|Calculating integrity|Computing integrity|Writing).*?|)(\d+(?:\.\d+)?)\s*%\s*(?:\]|complete|\)|$|=)') {
+                $stage=$CurrentStage.Id; $label=$CurrentStage.Label
+                $percent=[Math]::Min(100,[Math]::Max(0,[int][double]$Matches[1]))
+            }
+        }
+    }
+    if(-not $stage){return $null}
+    $range=$ranges[$stage]
+    $overall=if($percent -ge 0){$range[0]+($range[1]-$range[0])*$percent/100}else{$range[0]}
+    return [pscustomobject]@{Id=$stage;Label=$label;StepPercent=$percent;OverallPercent=[int][Math]::Min(99,$overall)}
+}
 function Get-GuiLineKind {
     # Colour class of a log line: error, warning, section, success or text.
     param([string]$Line)
@@ -435,6 +477,7 @@ function Import-GuiSettings {
             $state[$p.Name] = $p.Value
         }
     }
+    $state.Compress = (Resolve-BuildProfile -Compress $state.Compress).Compress
     return $state
 }
 
@@ -576,31 +619,33 @@ function Get-NtfsDrives {
 }
 
 function Get-SourceEditions {
-    # Lists the editions of an ISO path or drive letter with their details
-    # (Get-ImageInfo objects). Mounts an ISO read-only and dismounts it again.
+    # Read tiny WIM metadata directly from the ISO, without attaching a volume.
     param([Parameter(Mandatory = $true)][string]$Source)
-    $mountedHere = $false
-    $root = $null
-    try {
-        if ($Source -match '^[A-Za-z]:?\\?$') {
-            $root = $Source.Substring(0, 1) + ':'
-        } else {
-            $image = Get-DiskImage -ImagePath $Source -ErrorAction Stop
-            if (-not $image.Attached) {
-                $image = Mount-DiskImage -ImagePath $Source -Access ReadOnly -PassThru -ErrorAction Stop
-                $mountedHere = $true
-            }
-            for ($i = 0; $i -lt 20 -and -not $root; $i++) {
-                $letter = ($image | Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter } | Select-Object -First 1).DriveLetter
-                if ($letter) { $root = "${letter}:" } else { Start-Sleep -Milliseconds 500 }
-            }
-            if (-not $root) { throw 'The ISO mounted but got no drive letter.' }
-        }
+    if ($Source -notmatch '^[A-Za-z]:?\\?$') { return @(Get-IsoImageEditions -Path $Source) }
+    $root = $Source.Substring(0, 1) + ':'
         $wim = if (Test-Path "$root\sources\install.wim") { "$root\sources\install.wim" } else { "$root\sources\install.esd" }
         if (-not (Test-Path $wim)) { throw "$root does not contain sources\install.wim or install.esd." }
-        return @(Get-WindowsImage -ImagePath $wim | Sort-Object ImageIndex | ForEach-Object { Get-ImageInfo -ImagePath $wim -Index $_.ImageIndex })
-    } finally {
-        if ($mountedHere) { Dismount-DiskImage -ImagePath $Source -ErrorAction SilentlyContinue | Out-Null }
+    $stream = [IO.File]::OpenRead($wim)
+    try { return @(Read-WimMetadata $stream) } finally { $stream.Dispose() }
+}
+
+function Get-GuiTiming {
+    # Percentages between stages are estimates; native step percentages are measured.
+    param([datetime]$BuildStart, [int]$OverallPercent, $StageTiming, [datetime]$Now = (Get-Date))
+    $elapsed = [Math]::Max(0, ($Now - $BuildStart).TotalSeconds)
+    $stepEta = $null; $totalEta = $null
+    if ($StageTiming -and $StageTiming.Percent -gt $StageTiming.StartPercent -and $StageTiming.Percent -lt 100) {
+        $seconds = ($Now - $StageTiming.Start).TotalSeconds
+        if ($seconds -ge 5 -and ($Now - $StageTiming.Advanced).TotalSeconds -lt 90) {
+            $stepEta = $seconds * (100 - $StageTiming.Percent) / ($StageTiming.Percent - $StageTiming.StartPercent)
+        }
+    }
+    if ($OverallPercent -ge 100) { $totalEta = 0 }
+    elseif ($elapsed -ge 30 -and $OverallPercent -ge 8) { $totalEta = $elapsed * (100 - $OverallPercent) / $OverallPercent }
+    $etaText = if ($null -ne $totalEta) { '~' + (Format-Elapsed ([timespan]::FromSeconds($totalEta))) + ' (rough)' } else { 'estimating...' }
+    [pscustomobject]@{
+        StepEtaSeconds = $stepEta; TotalEtaSeconds = $totalEta
+        Text = 'Elapsed ' + (Format-Elapsed ([timespan]::FromSeconds($elapsed))) + "`r`nETA $etaText"
     }
 }
 
@@ -650,6 +695,7 @@ function Show-Tiny11BuilderForm {
         # with another script in place of the builder, and without pop-ups;
         # the window closes by itself when the build ends.
         [ValidateSet('', 'Build', 'DryRun')][string]$AutoRun = '',
+        [switch]$AutoReadSource,
         [string]$BuilderOverride,
         [switch]$Quiet
     )
@@ -679,11 +725,14 @@ function Show-Tiny11BuilderForm {
         Process    = $null
         Reader     = $null
         BuildStart = $null
+        StageTiming = $null
+        EditionWorker = $null
         LastExit   = $null
         BuildScratch = $null
         Quiet      = [bool]$Quiet
         BuilderOverride = $BuilderOverride
         AutoRun    = $AutoRun
+        AutoReadSource = [bool]$AutoReadSource
     }
 
     #--- Window ---
@@ -743,7 +792,8 @@ function Show-Tiny11BuilderForm {
     $btnLoadEditions = New-UiControl -Type Button -Parent $g1 -X 734 -Y 26 -W 118 -H 26 -Text 'Load editions' -Props @{ Font = $bold }
     $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 66 -W 120 -Text 'Edition:'
     $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 63 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
-    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 94 -W 712 -H 44 -Text 'Click "Load editions": the ISO is mounted read-only for a moment to list its editions (build, architecture, language, size).' -Props @{ ForeColor = $muted }
+    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 94 -W 712 -H 32 -Text 'Load editions: reads build, architecture, language and size directly from the ISO. No mounting or cache needed.' -Props @{ ForeColor = $muted }
+    $editionProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 130 -W 712 -H 8 -Props @{ Visible = $false; Style = 'Marquee' }
 
     $g2 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 170 -W 868 -H 110 -Text 'Builder'
     $rbStandard = New-UiControl -Type RadioButton -Parent $g2 -X 16 -Y 26 -W 250 -Text 'Standard  (recommended)' -Props @{ Font = $bold }
@@ -762,7 +812,7 @@ function Show-Tiny11BuilderForm {
     $lblScratchHint = New-UiControl -Type Label -Parent $g3 -X 548 -Y 66 -W 305 -H 36 -Text 'NTFS, ~25 GB free. An SSD makes builds much faster.' -Props @{ ForeColor = $muted }
     $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 106 -W 120 -Text 'Compression:'
     $cbCompress = New-UiControl -Type ComboBox -Parent $g3 -X 140 -Y 103 -W 160 -Props @{ DropDownStyle = 'DropDownList' }
-    foreach ($c in 'recovery', 'max', 'fast', 'none') { [void]$cbCompress.Items.Add($c) }
+    foreach ($c in 'maximum', 'balanced', 'fast', 'none') { [void]$cbCompress.Items.Add($c) }
     $lblCompress = New-UiControl -Type Label -Parent $g3 -X 310 -Y 106 -W 540 -Props @{ ForeColor = $muted }
     $chkFast = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 140 -W 700 -Text 'Quick test build: fast compression, skip the component-store cleanup (larger ISO)'
     $chkNoPrompt = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 166 -W 700 -Text 'Boot straight into Setup (no "Press any key to boot from CD or DVD")'
@@ -896,9 +946,10 @@ function Show-Tiny11BuilderForm {
     $tbCommand = New-UiControl -Type TextBox -Parent $tabBuild -X 14 -Y 206 -W 776 -Props @{ ReadOnly = $true; Font = $mono }
     $btnCopyCmd = New-UiControl -Type Button -Parent $tabBuild -X 796 -Y 205 -W 84 -H 25 -Text 'Copy'
     $progress = New-UiControl -Type ProgressBar -Parent $tabBuild -X 14 -Y 240 -W 866 -H 18 -Props @{ Minimum = 0; Maximum = 100 }
-    $lblStage = New-UiControl -Type Label -Parent $tabBuild -X 14 -Y 262 -W 600 -Text 'Ready.' -Props @{ Font = $bold }
-    $lblElapsed = New-UiControl -Type Label -Parent $tabBuild -X 620 -Y 262 -W 260 -Props @{ TextAlign = 'TopRight'; ForeColor = $muted }
-    $rtbLog = New-UiControl -Type RichTextBox -Parent $tabBuild -X 14 -Y 284 -W 866 -H 200 -Props @{ ReadOnly = $true; Font = $mono; BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28); ForeColor = [System.Drawing.Color]::Gainsboro; WordWrap = $false; DetectUrls = $false }
+    $stepProgress = New-UiControl -Type ProgressBar -Parent $tabBuild -X 14 -Y 264 -W 866 -H 14 -Props @{ Minimum = 0; Maximum = 100 }
+    $lblStage = New-UiControl -Type Label -Parent $tabBuild -X 14 -Y 282 -W 590 -H 40 -Text 'Ready.' -Props @{ Font = $bold }
+    $lblElapsed = New-UiControl -Type Label -Parent $tabBuild -X 610 -Y 282 -W 270 -H 40 -Props @{ TextAlign = 'TopRight'; ForeColor = $muted }
+    $rtbLog = New-UiControl -Type RichTextBox -Parent $tabBuild -X 14 -Y 326 -W 866 -H 158 -Props @{ ReadOnly = $true; Font = $mono; BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28); ForeColor = [System.Drawing.Color]::Gainsboro; WordWrap = $false; DetectUrls = $false }
     $rtbLog.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)   # after ReadOnly, which resets it
     $rtbLog.ForeColor = [System.Drawing.Color]::Gainsboro
     $btnCancel = New-UiControl -Type Button -Parent $tabBuild -X 14 -Y 490 -W 130 -H 26 -Text 'Cancel build' -Props @{ Enabled = $false }
@@ -914,7 +965,7 @@ function Show-Tiny11BuilderForm {
         LocalAdmin = $rbLocalAdmin; Oobe = $rbOobe; User = $tbUser; Password = $tbPassword; Password2 = $tbPassword2; Locale = $cbLocale; TimeZone = $cbTimeZone
         Computer = $tbComputer; ZeroTouch = $chkZeroTouch; Unattend = $tbUnattend; NetFx = $chkNetFx; Drivers = $tbDrivers; DriversHint = $lblDrivers; Browser = $cbBrowser
         Payload = $chkPayload; PayloadHint = $lblPayload; LowRam = $chkLowRam; DriverUpd = $chkDriverUpd; DefExcl = $chkDefExcl
-        Summary = $tbSummary; Checks = $lvChecks; Command = $tbCommand; Progress = $progress; Stage = $lblStage; Elapsed = $lblElapsed; Log = $rtbLog
+        Summary = $tbSummary; Checks = $lvChecks; Command = $tbCommand; Progress = $progress; StepProgress = $stepProgress; Stage = $lblStage; Elapsed = $lblElapsed; Log = $rtbLog
         Cancel = $btnCancel; OpenOutput = $btnOpenOutput; Build = $btnBuild; DryRunBtn = $btnDryRun; LoadProfile = $btnLoadProfile; SaveProfile = $btnSaveProfile; Reset = $btnReset
     }
     $ui.Zones = $zones
@@ -1200,12 +1251,17 @@ function Show-Tiny11BuilderForm {
     $finishBuild = {
         param([int]$code)
         $ui.Timer.Stop()
+        $ui.Controls.StepProgress.Style = 'Continuous'
         $ui.Process = $null
         $ui.LastExit = $code
+        if ($ui.BuildStart) {
+            $ui.Controls.Elapsed.Text = 'Elapsed ' + (Format-Elapsed ((Get-Date) - $ui.BuildStart))
+        }
         & $setBusy $false
         $iso = $ui.State.OutputIso
         if ($code -eq 0 -and -not $ui.CurrentDryRun -and (Test-Path -LiteralPath $iso)) {
             $ui.Controls.Progress.Value = 100
+            $ui.Controls.StepProgress.Value = 100
             $ui.Controls.Stage.Text = 'Finished - the ISO is ready.'
             $ui.Controls.Stage.ForeColor = [System.Drawing.Color]::DarkGreen
             $ui.Controls.OpenOutput.Enabled = $true
@@ -1217,6 +1273,7 @@ function Show-Tiny11BuilderForm {
             $ui.Controls.Stage.ForeColor = $danger
         } elseif ($code -eq 0) {
             $ui.Controls.Progress.Value = 100
+            $ui.Controls.StepProgress.Value = 100
             $ui.Controls.Stage.Text = 'Dry run finished - see the plan in the log.'
             $ui.Controls.Stage.ForeColor = [System.Drawing.Color]::DarkGreen
         } else {
@@ -1264,6 +1321,10 @@ function Show-Tiny11BuilderForm {
         $logPath = Join-Path $Script:GuiRepoRoot ("logs\gui\gui-build-{0:yyyyMMdd_HHmmss}.log" -f (Get-Date))
         $ui.Controls.Log.Clear()
         & $appendLog "> $($req.CommandLine)"
+        $ui.CurrentStage = $null
+        $ui.StageTiming = $null
+        $ui.Controls.StepProgress.Value = 0
+        $ui.Controls.StepProgress.Style = 'Marquee'
         $ui.Controls.Progress.Value = 0
         $ui.Controls.Stage.Text = 'Starting...'
         $ui.Controls.Stage.ForeColor = [System.Drawing.Color]::Black
@@ -1292,15 +1353,36 @@ function Show-Tiny11BuilderForm {
             $exitCode = $null
             foreach ($line in $lines) {
                 if ($line -match '^__TINY11_EXIT__ (-?\d+)') { $exitCode = [int]$Matches[1]; continue }
-                & $appendLog $line
-                $stage = Get-GuiBuildStage $line
-                if ($stage -and $stage.Percent -ge $ui.Controls.Progress.Value) {
-                    $ui.Controls.Progress.Value = [Math]::Max(0, [Math]::Min(100, [int]$stage.Percent))
-                    $ui.Controls.Stage.Text = "$($stage.Label)..."
+                if ($line -notmatch '^__TINY11_PROGRESS__ ') { & $appendLog $line }
+                $stage = Get-GuiStepProgress -Line $line -CurrentStage $ui.CurrentStage
+                if ($stage) {
+                    $now = Get-Date
+                    if (-not $ui.StageTiming -or $ui.StageTiming.Id -ne $stage.Id -or $stage.StepPercent -lt $ui.StageTiming.Percent) {
+                        $ui.StageTiming = @{ Id=$stage.Id; Start=$now; StartPercent=[Math]::Max(0,$stage.StepPercent); Percent=$stage.StepPercent; Advanced=$now }
+                    } elseif ($stage.StepPercent -gt $ui.StageTiming.Percent) {
+                        $ui.StageTiming.Percent = $stage.StepPercent
+                        $ui.StageTiming.Advanced = $now
+                    }
+                    $ui.CurrentStage = $stage
+                    $ui.Controls.Progress.Value = [Math]::Max($ui.Controls.Progress.Value, $stage.OverallPercent)
+                    if ($stage.StepPercent -ge 0) {
+                        $ui.Controls.StepProgress.Style = 'Continuous'
+                        $ui.Controls.StepProgress.Value = $stage.StepPercent
+                        $ui.Controls.Stage.Text = "$($stage.Label): $($stage.StepPercent)% (overall estimate: $($ui.Controls.Progress.Value)%)"
+                    } else {
+                        $ui.Controls.StepProgress.Style = 'Marquee'
+                        $ui.Controls.Stage.Text = "$($stage.Label)... (overall estimate: $($ui.Controls.Progress.Value)%)"
+                    }
                 }
             }
             if ($lines.Count) { $ui.Controls.Log.ScrollToCaret() }
-            if ($ui.BuildStart) { $ui.Controls.Elapsed.Text = 'Elapsed ' + (Format-Elapsed ((Get-Date) - $ui.BuildStart)) }
+            if ($ui.BuildStart) {
+                $timing = Get-GuiTiming -BuildStart $ui.BuildStart -OverallPercent $ui.Controls.Progress.Value -StageTiming $ui.StageTiming
+                $ui.Controls.Elapsed.Text = $timing.Text
+                if ($null -ne $timing.StepEtaSeconds) {
+                    $ui.Controls.Stage.Text = ($ui.Controls.Stage.Text -split "`r?`n")[0] + "`r`nStep remaining ~" + (Format-Elapsed ([timespan]::FromSeconds($timing.StepEtaSeconds)))
+                } else { $ui.Controls.Stage.Text = ($ui.Controls.Stage.Text -split "`r?`n")[0] }
+            }
             if ($null -ne $exitCode) {
                 & $finishBuild $exitCode
             } elseif ($ui.Process -and $ui.Process.HasExited) {
@@ -1317,28 +1399,83 @@ function Show-Tiny11BuilderForm {
             $dlg = New-Object System.Windows.Forms.OpenFileDialog
             $dlg.Filter = 'Windows ISO (*.iso)|*.iso|All files (*.*)|*.*'
             $dlg.Title = 'Select a Windows 11 ISO'
-            if ($dlg.ShowDialog() -eq 'OK') { $ui.Controls.Source.Text = $dlg.FileName; $ui.State.Source = $dlg.FileName }
+            if ($dlg.ShowDialog() -eq 'OK') {
+                $ui.Controls.Source.Text = $dlg.FileName; $ui.State.Source = $dlg.FileName
+                $btnLoadEditions.PerformClick()
+            }
         })
+    $editionTimer = New-Object System.Windows.Forms.Timer
+    $editionTimer.Interval = 100
+    $stopEditionRead = {
+        $editionTimer.Stop()
+        if ($ui.EditionWorker) {
+            try { $ui.EditionWorker.PowerShell.Stop() } finally {
+                $ui.EditionWorker.PowerShell.Dispose()
+                $ui.EditionWorker = $null
+            }
+        }
+        $editionProgress.Visible = $false
+        $btnLoadEditions.Enabled = $true
+    }
+    $editionTimer.Add_Tick({
+        $worker = $ui.EditionWorker
+        if (-not $worker -or -not $worker.Handle.IsCompleted) { return }
+        try {
+            $result = @($worker.PowerShell.EndInvoke($worker.Handle))
+            if ($worker.PowerShell.HadErrors) { throw ($worker.PowerShell.Streams.Error | Out-String) }
+            # A changed path cannot inherit the previous ISO's edition indexes.
+            if ($worker.Source -ne $ui.Controls.Source.Text.Trim().Trim('"')) { return }
+            $ui.Editions = $result
+            $ui.Controls.Edition.Items.Clear()
+            foreach ($e in $ui.Editions) { [void]$ui.Controls.Edition.Items.Add((Format-GuiEdition $e)) }
+            $pick = [array]::IndexOf(@($ui.Editions | ForEach-Object { $_.Name }), 'Windows 11 Pro')
+            $ui.Controls.Edition.SelectedIndex = if ($pick -ge 0) { $pick } else { 0 }
+            $ui.Controls.EditionHint.Text = "$($ui.Editions.Count) confirmed edition(s), Windows $($ui.Editions[0].DisplayVersion), $($ui.Editions[0].Version). No ISO mount."
+            $editionProgress.Visible = $false
+            $btnLoadEditions.Enabled = $true
+            if ($ui.AutoReadSource) {
+                $ui.LastExit = 0
+                if ($ui.PreviewPath) { & $ui.Capture }
+                $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null
+            }
+        } catch {
+            $ui.Controls.EditionHint.Text = "Could not read editions: $($_.Exception.Message)"
+            Invoke-PopupError -Title 'Cannot read editions' -Message $_.Exception.Message
+            if ($ui.AutoReadSource) { $ui.LastExit = 1; $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null }
+        } finally { & $stopEditionRead }
+    })
     $btnLoadEditions.Add_Click({
             $src = $ui.Controls.Source.Text.Trim().Trim('"')
             if (-not $src) { Invoke-PopupError -Title 'No source' -Message 'Choose an ISO file or a drive first.'; return }
-            $ui.Form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
-            $ui.Controls.EditionHint.Text = 'Reading editions...'
-            [System.Windows.Forms.Application]::DoEvents()
+            & $stopEditionRead
+            $ui.Controls.EditionHint.Text = Get-WindowsReleaseHint -Source $src
+            $editionProgress.Visible = $true
+            $btnLoadEditions.Enabled = $false
             try {
-                $ui.Editions = @(Get-SourceEditions -Source $src)
-                $ui.Controls.Edition.Items.Clear()
-                foreach ($e in $ui.Editions) { [void]$ui.Controls.Edition.Items.Add((Format-GuiEdition $e)) }
-                $pick = [array]::IndexOf(@($ui.Editions | ForEach-Object { $_.Name }), 'Windows 11 Pro')
-                $ui.Controls.Edition.SelectedIndex = if ($pick -ge 0) { $pick } else { 0 }
-                $ui.Controls.EditionHint.Text = "$($ui.Editions.Count) edition(s) found. The build exports only the one you pick."
+                $ps = [PowerShell]::Create()
+                [void]$ps.AddScript({
+                    param($root,$source)
+                    $ErrorActionPreference = 'Stop'
+                    Import-Module (Join-Path $root 'lib\tiny11utils.psm1') -DisableNameChecking
+                    Import-Module (Join-Path $root 'lib\tiny11gui.psm1') -DisableNameChecking
+                    Get-SourceEditions -Source $source
+                }).AddArgument($Script:GuiRepoRoot).AddArgument($src)
+                $ui.EditionWorker = @{ PowerShell=$ps; Handle=$ps.BeginInvoke(); Source=$src }
+                $editionTimer.Start()
             } catch {
-                $ui.Controls.EditionHint.Text = "Could not read editions: $($_.Exception.Message)"
+                if ($ps) { $ps.Dispose() }
+                & $stopEditionRead
                 Invoke-PopupError -Title 'Cannot read editions' -Message $_.Exception.Message
-            } finally {
-                $ui.Form.Cursor = [System.Windows.Forms.Cursors]::Default
             }
         })
+    $cbSource.Add_TextChanged({
+        if ($ui.Loading) { return }
+        & $stopEditionRead
+        $ui.Editions = @()
+        $ui.Controls.Edition.Items.Clear()
+        $ui.State.Index = 0; $ui.State.EditionName = ''; $ui.State.EditionSizeBytes = 0
+        $ui.Controls.EditionHint.Text = Get-WindowsReleaseHint -Source $cbSource.Text
+    })
     $cbEdition.Add_SelectedIndexChanged({
             if ($ui.Loading -or -not $ui.Editions.Count) { return }
             $e = $ui.Editions[$ui.Controls.Edition.SelectedIndex]
@@ -1607,6 +1744,7 @@ function Show-Tiny11BuilderForm {
             if (-not $ui.Process) { return }
             if (-not (Invoke-PopupYesOrNo -Title 'Cancel the build?' -Message 'The builder is stopped and the mounted image is discarded. Continue?')) { return }
             $ui.Timer.Stop()
+        $ui.Controls.StepProgress.Style = 'Continuous'
             & $appendLog 'Cancelling: stopping the builder and cleaning up the work folders...'
             [System.Windows.Forms.Application]::DoEvents()
             $proc = $ui.Process
@@ -1646,8 +1784,11 @@ function Show-Tiny11BuilderForm {
             if ($ui.Process -and -not $ui.Process.HasExited) {
                 if (-not (Invoke-PopupYesOrNo -Title 'Build running' -Message 'A build is running. Stop it, clean up and close?')) { $e.Cancel = $true; return }
                 $ui.Timer.Stop()
+        $ui.Controls.StepProgress.Style = 'Continuous'
                 try { Stop-GuiBuild -Process $ui.Process -ScratchDisk $ui.BuildScratch } catch { Write-Verbose $_.Exception.Message }
             }
+            & $stopEditionRead
+            $editionTimer.Dispose()
             if (-not $PreviewPath -and $SettingsPath) {
                 try { Export-GuiSettings -State (& $readState) -Path $SettingsPath } catch { Write-Verbose "Settings not saved: $($_.Exception.Message)" }
             }
@@ -1703,7 +1844,7 @@ function Show-Tiny11BuilderForm {
     }
     # -PreviewPath alone: render the chosen tab. With -AutoRun, the window is
     # captured after the build finished instead (log + progress visible).
-    if ($PreviewPath -and -not $AutoRun) {
+    if ($PreviewPath -and -not $AutoRun -and -not $AutoReadSource) {
         $tabs.SelectedIndex = [Math]::Min([Math]::Max(0, $PreviewTab), $tabs.TabCount - 1)
         if ($tabs.SelectedTab -eq $tabBuild) { $null = & $refreshBuildTab }
         $form.Show()
@@ -1716,6 +1857,7 @@ function Show-Tiny11BuilderForm {
     if ($AutoRun) {
         $form.Add_Shown({ & $startBuild ($ui.AutoRun -eq 'DryRun') })
     }
+    if ($AutoReadSource) { $form.Add_Shown({ $btnLoadEditions.PerformClick() }) }
     [void]$form.ShowDialog()
     return $ui.LastExit
 }
@@ -1724,6 +1866,6 @@ function Show-Tiny11BuilderForm {
 
 Export-ModuleMember -Function Get-GuiFlagInfo, Get-GuiPresetDescription, Get-GuiCompressionDescription, Get-GuiDefaultState,
     Test-GuiFlagsModified, Test-GuiRemoveListModified, Format-GuiCommandLine, ConvertTo-GuiBuildRequest, Test-GuiBuildRequest,
-    Get-GuiTweakRows, Set-GuiTweakChoice, Get-GuiBuildStage, Get-GuiLineKind, Export-GuiSettings, Import-GuiSettings,
+    Get-GuiTweakRows, Set-GuiTweakChoice, Get-GuiBuildStage, Get-GuiStepProgress, Get-GuiTiming, Get-GuiLineKind, Export-GuiSettings, Import-GuiSettings,
     Start-GuiBuild, Read-GuiLogTail, Stop-GuiBuild, Invoke-PopupInfo, Invoke-PopupError, Invoke-PopupYesOrNo,
     Get-SetupMediaDrives, Get-NtfsDrives, Get-SourceEditions, Format-GuiEdition, New-UiControl, Show-Tiny11BuilderForm

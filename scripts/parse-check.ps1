@@ -14,14 +14,15 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
 Import-Module -Name (Join-Path $repo 'lib\tiny11gui.psm1') -Force -DisableNameChecking
+Import-Module -Name (Join-Path $repo 'lib\tiny11media.psm1') -Force -DisableNameChecking
 Import-Module Dism -ErrorAction SilentlyContinue       # Mount-WindowsImage & co.
 Import-Module Storage -ErrorAction SilentlyContinue    # Mount-DiskImage, Get-Volume
 
 # Provided by optional modules the linter installs on demand.
 $external = @('Install-Module', 'Install-PackageProvider', 'Invoke-ScriptAnalyzer')
 
-$files = Get-ChildItem -Path $repo -Recurse -File -Include *.ps1, *.psm1 |
-    Where-Object { $_.FullName -notmatch '\\(repos|logs|\.git)\\' }
+$files = @(Get-ChildItem -LiteralPath $repo -File | Where-Object Extension -in '.ps1','.psm1') +
+    @(Get-ChildItem -Path (Join-Path $repo 'lib'),(Join-Path $repo 'scripts') -Recurse -File -Include *.ps1,*.psm1)
 
 $failed = $false
 foreach ($file in $files) {

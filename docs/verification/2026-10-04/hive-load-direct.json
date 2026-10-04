@@ -1,0 +1,23 @@
+﻿{
+    "Started":  "2026-10-04T18:27:02.4617426+02:00",
+    "PID":  21356,
+    "Attempt":  "direct",
+    "Success":  false,
+    "Writers":  [
+
+                ],
+    "Mounts":  [
+
+               ],
+    "Moved_tiny11":  "C:\\.temp\\preserved-tiny11\\tiny11",
+    "Moved_scratchdir":  "C:\\.temp\\preserved-tiny11\\scratchdir",
+    "InJob":  true,
+    "RestrictedToken":  false,
+    "Hive":  "C:\\.temp\\probe-21356\\software.hiv",
+    "PathLength":  33,
+    "LoadExit":  1,
+    "LoadOutput":  [
+                       "ERROR: The filename or extension is too long.\r"
+                   ],
+    "Finished":  "2026-10-04T18:27:02.9555238+02:00"
+}

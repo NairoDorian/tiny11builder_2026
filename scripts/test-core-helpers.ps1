@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
     Unit tests for lib\tiny11utils.psm1, the tweak catalog, the presets, the
@@ -38,7 +38,7 @@ function Section([string]$name) { Write-Host "== $name ==" }
 #======================================================================
 Section 'Resolve-BuildProfile'
 $p = Resolve-BuildProfile
-Check 'default recovery'           ($p.Compress -eq 'recovery')
+Check 'default maximum'            ($p.Compress -eq 'maximum')
 Check 'default esd'                ($p.UseEsd -and $p.ImageFileName -eq 'install.esd')
 Check 'default export recovery'    ($p.ExportCompress -eq 'recovery')
 Check 'default cleanup'            (-not $p.SkipCleanup)
@@ -48,6 +48,7 @@ $p = Resolve-BuildProfile -Compress max
 Check 'max -> wim max'             ($p.ExportCompress -eq 'max' -and -not $p.UseEsd)
 $p = Resolve-BuildProfile -Compress none -Fast
 Check 'explicit wins over -Fast'   ($p.Compress -eq 'none' -and $p.SkipCleanup)
+Check 'legacy recovery remains maximum' ((Resolve-BuildProfile -Compress recovery).Compress -eq 'maximum')
 CheckThrows 'invalid compress'     { Resolve-BuildProfile -Compress zip }
 
 #======================================================================
@@ -199,6 +200,9 @@ CheckThrows '-Edition unknown throws'      { Select-ImageIndex -Images $imgs -Ed
 CheckThrows 'multi + non-interactive'      { Select-ImageIndex -Images $imgs -NonInteractive }
 Check 'single image auto'                  ((Select-ImageIndex -Images @($imgs[1]) -NonInteractive) -eq 5)
 Check 'display 25H2'                       ((Get-WindowsDisplayVersion 26200) -eq '25H2')
+Check 'display 26H2 build from reported ISO' ((Get-WindowsDisplayVersion 26300) -eq '26H2')
+Check 'display 26H1'                       ((Get-WindowsDisplayVersion 28000) -eq '26H1')
+Check 'unknown newer build is explicit'   ((Get-WindowsDisplayVersion 29000) -eq 'Preview (build 29000)')
 Check 'display 24H2'                       ((Get-WindowsDisplayVersion 26100) -eq '24H2')
 Check 'display 23H2'                       ((Get-WindowsDisplayVersion 22631) -eq '23H2')
 Check 'arch enum 9 -> amd64'               ((ConvertTo-ArchitectureName 9) -eq 'amd64')
@@ -275,6 +279,12 @@ $nativeResult = Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile'
 Check 'native runner preserves exit code' ($nativeResult.ExitCode -eq 7)
 Check 'native runner drains stdout' ($nativeResult.Output -contains 'stdout')
 Check 'native runner drains stderr' ($nativeResult.Output -contains 'stderr')
+$nativeErrors = @()
+$nativeResult = Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', '[Console]::Out.WriteLine("stdout"); [Console]::Error.WriteLine("100% complete"); exit 7') -StreamOutput -PassThru -ErrorVariable nativeErrors 6>$null
+Check 'streaming stderr is text, not an error' ($nativeErrors.Count -eq 0 -and $nativeResult.Output -contains '100% complete')
+Check 'streaming preserves stdout and failure exit' ($nativeResult.Output -contains 'stdout' -and $nativeResult.ExitCode -eq 7)
+CheckThrows 'streaming nonexistent executable fails' { Invoke-Native -FilePath 'C:\nonexistent-t11-command.exe' -StreamOutput }
+CheckThrows 'streaming timeout terminates child' { Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -StreamOutput -TimeoutSeconds 1 }
 $nativeClock = [Diagnostics.Stopwatch]::StartNew()
 CheckThrows 'native runner terminates stalled command' { Invoke-Native -FilePath $nativeHost -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -TimeoutSeconds 1 }
 Check 'native timeout returns promptly' ($nativeClock.Elapsed.TotalSeconds -lt 10)
@@ -455,6 +465,145 @@ Remove-Item $fake -Recurse -Force
 CheckThrows 'WinSxS missing path'          { Assert-WinSxSRebuild -Path 'C:\nonexistent-path-12345' }
 
 #======================================================================
+Section 'Mounted image registry prerequisites'
+$module = Get-Module tiny11utils
+$global:T11Test = @{ Files = $true; Conflict = $false; Denied = $false; Loads = 0; Unloads = 0 }
+& $module {
+    function script:Test-Path {
+        param($Path, $LiteralPath)
+        if ($LiteralPath -like 'Registry::*') { return $global:T11Test.Conflict }
+        return $global:T11Test.Files
+    }
+    function script:Invoke-RegLoad {
+        param($HiveName, $FilePath)
+        $global:T11Test.Loads++
+        if ($global:T11Test.Denied) { throw 'ERROR: The filename or extension is too long.' }
+    }
+    function script:Invoke-RegUnload { param($HiveName) $global:T11Test.Unloads++ }
+} | Out-Null
+Assert-MountedImage -MountPath 'X:\mnt'
+Check 'mounted image probes and unloads SOFTWARE' ($global:T11Test.Loads -eq 1 -and $global:T11Test.Unloads -eq 1)
+$global:T11Test.Conflict = $true
+CheckThrows 'mounted image refuses conflicting hive' { Assert-MountedImage -MountPath 'X:\mnt' }
+Check 'conflicting hive is never unloaded' ($global:T11Test.Unloads -eq 1)
+$global:T11Test.Conflict = $false; $global:T11Test.Denied = $true
+$diagnosticError = ''
+try { Assert-MountedImage -MountPath 'X:\mnt' } catch { $diagnosticError = $_.Exception.Message }
+Check 'mounted image preserves underlying registry failure' ($diagnosticError -like '*DISM cannot service*this image*filename or extension is too long*')
+Check 'failed load is not unloaded' ($global:T11Test.Unloads -eq 1)
+$global:T11Test.Files = $false
+CheckThrows 'missing image SOFTWARE is still rejected' { Assert-MountedImage -MountPath 'X:\mnt' }
+Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+Remove-Variable -Name T11Test -Scope Global
+
+Section 'Final installation metadata guard'
+$expectedMetadata = [pscustomobject]@{ Edition='Professional'; Flags='Professional'; Architecture='amd64'; InstallationType='Client'; ProductType='WinNT'; ProductSuite='Terminal Server'; Language='en-US'; DefaultLanguage='en-US'; Languages=@('en-US'); Version='10.0.26300.9457' }
+$global:T11Test = @{ Images = @($expectedMetadata.PSObject.Copy()) }
+$module = Get-Module tiny11utils
+& $module { function script:Get-InstallImageMetadata { param($ImagePath, $Index) $global:T11Test.Images } } | Out-Null
+try {
+    $accepted = $true
+    try { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata } catch { $accepted = $false }
+    Check 'matching edition metadata accepted' $accepted
+    foreach ($field in 'Edition','Flags','Architecture','InstallationType','ProductType','ProductSuite','Language','DefaultLanguage','Version') {
+        $altered = $expectedMetadata.PSObject.Copy(); $altered.$field = ''
+        $global:T11Test.Images = @($altered)
+        CheckThrows "lost $field refuses ISO creation" { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata }
+    }
+    $altered = $expectedMetadata.PSObject.Copy(); $altered.Languages = @('fr-FR'); $global:T11Test.Images = @($altered)
+    CheckThrows 'changed language set refuses ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata }
+    $global:T11Test.Images = @($expectedMetadata, $expectedMetadata)
+    CheckThrows 'multiple final editions refuse ISO creation' { Assert-InstallImageMetadata -ImagePath 'X:\fixture.wim' -Expected $expectedMetadata }
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+}
+Section 'Early offline hive-loading preflight'
+if (Test-Path -LiteralPath (Join-Path ([Environment]::SystemDirectory) 'offreg.dll')) {
+    $probeWork = Join-Path $repo ('logs\preflight-test-' + [guid]::NewGuid().ToString('N'))
+    $global:T11Test = @{ Loads = 0; Unloads = 0; FailLoad = $false; FailUnload = $false; Alias = '' }
+    $module = Get-Module tiny11utils
+    & $module {
+        function script:Invoke-RegLoad {
+            param($HiveName, $FilePath)
+            $global:T11Test.Loads++; $global:T11Test.Alias = $HiveName
+            if ($global:T11Test.FailLoad) { throw 'ERROR: The filename or extension is too long.' }
+        }
+        function script:Invoke-RegUnload {
+            param($HiveName)
+            $global:T11Test.Unloads++
+            if ($global:T11Test.FailUnload) { throw 'Probe remains attached.' }
+        }
+    } | Out-Null
+    try {
+        Test-OfflineHiveLoading -ScratchRoot $probeWork | Out-Null
+        Check 'early probe loads/unloads one disposable hive' ($global:T11Test.Loads -eq 1 -and $global:T11Test.Unloads -eq 1)
+        Check 'early probe uses a distinct offline alias' ($global:T11Test.Alias -eq ('zT11Preflight' + $PID))
+        Check 'successful early probe cleans its files' (@(Get-ChildItem -LiteralPath $probeWork -Force).Count -eq 0)
+        $global:T11Test.FailLoad = $true; $diagnosticError = ''
+        try { Test-OfflineHiveLoading -ScratchRoot $probeWork } catch { $diagnosticError = $_.Exception.Message }
+        Check 'early failure preserves cause and launch guidance' ($diagnosticError -like '*before image servicing*launch context*filename or extension is too long*')
+        Check 'failed early load is not unloaded' ($global:T11Test.Unloads -eq 1)
+        Check 'failed early load cleans its disposable files' (@(Get-ChildItem -LiteralPath $probeWork -Force).Count -eq 0)
+        $global:T11Test.FailLoad = $false; $global:T11Test.FailUnload = $true
+        CheckThrows 'early probe reports unload failure' { Test-OfflineHiveLoading -ScratchRoot $probeWork }
+        Check 'failed early unload preserves diagnostic file' (@(Get-ChildItem -LiteralPath $probeWork -Recurse -Filter probe.hiv).Count -eq 1)
+    } finally {
+        Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+        Remove-Variable -Name T11Test -Scope Global
+        if (Test-Path -LiteralPath $probeWork) { Remove-Item -LiteralPath $probeWork -Recurse -Force }
+    }
+}
+Section 'Protected registry retry guards'
+CheckThrows 'ACL retry refuses host registry' { Set-ProtectedOfflineRegistryValue -Path 'HKLM\SOFTWARE\Tiny11Test' -ArgumentList @('add') }
+CheckThrows 'ACL retry refuses an unloaded hive' { Set-ProtectedOfflineRegistryValue -Path 'HKLM\zSOFTWARE\Tiny11Test' -ArgumentList @('add', 'HKLM\zSOFTWARE\Tiny11Test') }
+CheckThrows 'ACL retry refuses a different command target' { Set-ProtectedOfflineRegistryValue -Path 'HKLM\zSOFTWARE\Tiny11Test' -ArgumentList @('add', 'HKLM\SOFTWARE\Tiny11Test') }
+$module = Get-Module tiny11utils
+$global:T11Test = @{ Retry = 0; Message = 'ERROR: Access is denied.'; Arguments = @() }
+& $module {
+    function script:Assert-OfflineHiveLoaded { param($Path) }
+    function script:Invoke-Native { [pscustomobject]@{ ExitCode = 1; Output = @($global:T11Test.Message) } }
+    function script:Set-ProtectedOfflineRegistryValue { param($Path, $ArgumentList) $global:T11Test.Retry++; $global:T11Test.Arguments = $ArgumentList }
+} | Out-Null
+Set-RegistryValue -path 'HKLM\zSOFTWARE\Policies\Microsoft\Dsh' -name 'AllowNewsAndInterests' -type REG_DWORD -value '0' | Out-Null
+Check 'access denied triggers targeted retry' ($global:T11Test.Retry -eq 1 -and $global:T11Test.Arguments[1] -eq 'HKLM\zSOFTWARE\Policies\Microsoft\Dsh')
+$global:T11Test.Message = 'ERROR: Invalid parameter.'
+CheckThrows 'other registry failures still throw' { Set-RegistryValue -path 'HKLM\zSOFTWARE\Policies\Microsoft\Dsh' -name 'x' -type REG_DWORD -value '0' }
+Check 'other failures do not trigger file retry' ($global:T11Test.Retry -eq 1)
+Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+Remove-Variable -Name T11Test -Scope Global
+
+Section 'File-only offline registry writes'
+if (Test-Path -LiteralPath (Join-Path ([Environment]::SystemDirectory) 'offreg.dll')) {
+    Add-Type -Path (Join-Path $repo 'lib\OfflineRegistry.cs')
+    $hiveFile = Join-Path $repo "logs\test-offreg-$([guid]::NewGuid().ToString('N')).hive"
+    $hiveHandle = [IntPtr]::Zero
+    try {
+        New-Item -ItemType Directory -Path (Split-Path $hiveFile) -Force | Out-Null
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORCreateHive([ref]$hiveHandle), 'Create test hive')
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::ORSaveHive($hiveHandle, $hiveFile, 6, 1), 'Save test hive')
+        [void][Tiny11OfflineRegistry]::ORCloseHive($hiveHandle); $hiveHandle = [IntPtr]::Zero
+        Set-OfflineHiveDwordValues -HiveFile $hiveFile -Entries @(
+            @{ SubKey = 'Policies\Microsoft\Dsh'; Name = 'AllowNewsAndInterests'; Value = 0 },
+            @{ SubKey = 'Explorer\Advanced'; Name = 'TaskbarDa'; Value = 4294967295 }
+        )
+        [Tiny11OfflineRegistry]::Check([Tiny11OfflineRegistry]::OROpenHive($hiveFile, [ref]$hiveHandle), 'Reopen test hive')
+        foreach ($expected in @(@('Policies\Microsoft\Dsh', 'AllowNewsAndInterests', [uint32]0), @('Explorer\Advanced', 'TaskbarDa', [uint32]::MaxValue))) {
+            $data = [byte[]]::new(4); $size = [uint32]4; $kind = [uint32]0
+            $result = [Tiny11OfflineRegistry]::ORGetValue($hiveHandle, $expected[0], $expected[1], [ref]$kind, $data, [ref]$size)
+            Check "saved DWORD $($expected[1])" ($result -eq 0 -and $kind -eq 4 -and $size -eq 4 -and [BitConverter]::ToUInt32($data, 0) -eq $expected[2])
+        }
+        [void][Tiny11OfflineRegistry]::ORCloseHive($hiveHandle); $hiveHandle = [IntPtr]::Zero
+        $before = (Get-FileHash -LiteralPath $hiveFile).Hash
+        CheckThrows 'file writer rejects absolute registry paths' { Set-OfflineHiveDwordValues -HiveFile $hiveFile -Entries @(@{ SubKey = 'HKLM\SOFTWARE\Host'; Name = 'x'; Value = 0 }) }
+        Check 'rejected edit leaves original file intact' ((Get-FileHash -LiteralPath $hiveFile).Hash -eq $before)
+        CheckThrows 'file writer refuses active host SOFTWARE' { Set-OfflineHiveDwordValues -HiveFile (Join-Path $env:SystemRoot 'System32\config\SOFTWARE') -Entries @(@{ SubKey = 'Test'; Name = 'x'; Value = 0 }) }
+    } finally {
+        if ($hiveHandle -ne [IntPtr]::Zero) { [void][Tiny11OfflineRegistry]::ORCloseHive($hiveHandle) }
+        Remove-Item -LiteralPath $hiveFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Section 'Stages with mocked DISM / registry'
 # Replace the DISM cmdlets and registry writers *inside the module scope*
 # with recorders, then drive the real stage functions.
@@ -508,6 +657,15 @@ Check 'stage: default keeps Terminal'      ($global:T11Test.Removed -notcontains
 $global:T11Test.Removed.Clear()
 $res = Invoke-AppRemovalStage -MountPath 'X:\mnt' -Flags $flags -Utilities $util -PackageListPath $listPath -KeepApps 6>$null
 Check 'stage: -KeepApps removes nothing'   ($global:T11Test.Removed.Count -eq 0 -and $res.Total -eq 0)
+$global:T11Test.Appx += [pscustomobject]@{ DisplayName = 'Microsoft.SecHealthUI'; PackageName = 'Microsoft.SecHealthUI_1000.26100.9457.0_x64__8wekyb3d8bbwe' }
+$securityFlags = Resolve-BuildPreset Default
+$securityFlags.RemoveDefender = $true
+$global:T11Test.Removed.Clear()
+$res = Invoke-AppRemovalStage -MountPath 'X:\mnt' -Flags $securityFlags -Utilities $util -PackageListPath $listPath -ImageBuild 26300 6>$null
+Check '26H2: protected Security UI kept' ($global:T11Test.Removed -notcontains $global:T11Test.Appx[-1].PackageName -and $res.Failures -eq 0 -and $res.Total -eq 4)
+$global:T11Test.Removed.Clear()
+$res = Invoke-AppRemovalStage -MountPath 'X:\mnt' -Flags $securityFlags -Utilities $util -PackageListPath $listPath -ImageBuild 22631 6>$null
+Check 'older media: explicit Security UI removal retained' ($global:T11Test.Removed -contains $global:T11Test.Appx[-1].PackageName)
 
 $cat = Invoke-TweakCatalog -Flags $flags 6>$null
 $expectedSets = @(Get-TweakPlan -Flags $flags | ForEach-Object { @($_.Set | Where-Object { $_ }) }).Count
@@ -524,6 +682,45 @@ Check 'deprovision key written'            ($global:T11Test.RegSet -contains 'HK
 # Restore the real functions for the remaining sections.
 Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
 Remove-Variable -Name T11Test -Scope Global
+
+#======================================================================
+Section 'ISO creation failure handling'
+$isoTestRoot = Join-Path ([IO.Path]::GetTempPath()) "tiny11-iso-stage-$PID"
+New-Item -ItemType Directory -Path $isoTestRoot -Force | Out-Null
+$module = Get-Module tiny11utils
+New-Item -ItemType Directory -Path (Join-Path $isoTestRoot 'sources') -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $isoTestRoot 'sources\install.esd'),'fixture')
+$global:T11Test = @{ ExitCode = 0; Create = $true; Stream = $false; BootArg = '' }
+& $module {
+    function script:Find-Oscdimg { [pscustomobject]@{ Source = 'bundled' } }
+    function script:Initialize-Oscdimg { 'fake-oscdimg.exe' }
+    function script:Get-OscdimgBootArgument { '-bootdata:2#p0,e,bBIOS#pEF,e,bUEFI' }
+    function script:Get-Item { [pscustomobject]@{ Length = [long]301MB } }
+    function script:Invoke-Native {
+        param($FilePath, $ArgumentList, [switch]$StreamOutput)
+        $global:T11Test.Stream = [bool]$StreamOutput
+        $global:T11Test.BootArg = $ArgumentList[5]
+        if ($global:T11Test.Create) { [IO.File]::WriteAllText($ArgumentList[-1], 'fake') }
+        Write-Host '100% complete'
+        return $global:T11Test.ExitCode
+    }
+} | Out-Null
+try {
+    $isoPath = Join-Path $isoTestRoot 'test.iso'
+    $size = New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null
+    Check 'ISO stage returns scalar size, streams and preserves boot argument' ($size -eq 301MB -and $size -is [long] -and $global:T11Test.Stream -and $global:T11Test.BootArg -eq '-bootdata:2#p0,e,bBIOS#pEF,e,bUEFI')
+    [IO.File]::WriteAllText((Join-Path $isoTestRoot 'sources\install2.wim'),'leftover')
+    CheckThrows 'ISO stage rejects leftover original/intermediate install images' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+    Remove-Item -LiteralPath (Join-Path $isoTestRoot 'sources\install2.wim') -Force
+    $global:T11Test.ExitCode = 7
+    CheckThrows 'ISO stage rejects failed tool even with output file' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+    $global:T11Test.ExitCode = 0; $global:T11Test.Create = $false
+    CheckThrows 'ISO stage rejects missing output even with exit zero' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+    Remove-Item -LiteralPath $isoTestRoot -Recurse -Force
+}
 
 #======================================================================
 Section 'GUI logic'
@@ -634,6 +831,7 @@ $proc = Start-GuiBuild -ScriptPath $fake -Arguments ([ordered]@{ ISO = 'E'; Pass
 $proc.WaitForExit(60000) | Out-Null
 $runText = Get-Content -Raw $runLog
 Check 'launcher: builder output captured'  ($runText -match 'Mounting the Windows image' -and $runText -match 'WARNING: a fake warning')
+Check 'launcher: native progress is not labelled ERROR' ($runText -match '100% complete' -and $runText -notmatch 'ERROR:.*100% complete|RemoteException')
 Check 'launcher: exit code propagated'     ($runText -match '__TINY11_EXIT__ 3' -and $proc.ExitCode -eq 3)
 Check 'launcher: args file deleted'        (@(Get-ChildItem $tmpGui -Filter 'gui-args-*.xml').Count -eq 0)
 Check 'launcher: arguments passed'         ($runText -match '-ISO: E' -and $runText -match '-Yes: True')

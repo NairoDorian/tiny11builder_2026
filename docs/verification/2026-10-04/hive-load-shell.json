@@ -1,0 +1,21 @@
+﻿{
+    "Started":  "2026-10-04T18:28:24.9038506+02:00",
+    "PID":  28540,
+    "Attempt":  "shell",
+    "Success":  false,
+    "Writers":  [
+
+                ],
+    "Mounts":  [
+
+               ],
+    "InJob":  true,
+    "RestrictedToken":  false,
+    "Hive":  "C:\\.temp\\probe-28540\\software.hiv",
+    "PathLength":  33,
+    "LoadExit":  1,
+    "LoadOutput":  [
+                       "ERROR: The filename or extension is too long.\r"
+                   ],
+    "Finished":  "2026-10-04T18:28:25.4573889+02:00"
+}
