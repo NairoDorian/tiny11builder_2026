@@ -1,0 +1,1895 @@
+{
+  "Checked": "2026-10-05T01:50:02.5377153+02:00",
+  "OriginalHead": "00e7d8a151a39ccffccab4a267bb81fb3756a01d",
+  "Comparison": "Full tracked source trees against refreshed original main; blob/mode differences and per-file numstat. RecentHeadCommits may include shared original history.",
+  "References": [
+    {
+      "Name": "AhmedLolyProductions_Loly11",
+      "Url": "https://github.com/AhmedLolyProductions/Loly11.git",
+      "Branch": "main",
+      "Head": "d641372305f4b2bb6cd06be3869ba7dfb30f1a05",
+      "ChangedFiles": [
+        ".github/FUNDING.yml",
+        "autounattend.xml",
+        "README.md",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1",
+        "unattended.xml"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/FUNDING.yml",
+          "OriginalBlob": "b07f46cbe50e2802493c072b435b5eee7ce50343",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "8"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "37"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "cb62a931b47ae4246004cc72994fc1509329d029",
+          "AddedLines": "6",
+          "DeletedLines": "120"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "579"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "535"
+        },
+        {
+          "Path": "unattended.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "d641372 Create unattended.xml"
+      ]
+    },
+    {
+      "Name": "bedlaj_tiny11builder",
+      "Url": "https://github.com/bedlaj/tiny11builder.git",
+      "Branch": "main",
+      "Head": "6bcd07d03f0fe351e5660871c230b6ab3b46ef39",
+      "ChangedFiles": [
+        "README.md",
+        "Run.bat",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "88f03e2f85dc0eb1bd117499ccbcd029b5eb6800",
+          "AddedLines": "6",
+          "DeletedLines": "6"
+        },
+        {
+          "Path": "Run.bat",
+          "OriginalBlob": null,
+          "ForkBlob": "996c80af8b85c6469009a0c9bf60177d30f3a6ae",
+          "AddedLines": "5",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "20239e2d9d637574234f1fab8311423fa1bb4333",
+          "AddedLines": "105",
+          "DeletedLines": "93"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "a4e055cda4626609dbb32dcf2f603684902a6646",
+          "AddedLines": "45",
+          "DeletedLines": "37"
+        }
+      ],
+      "RecentHeadCommits": [
+        "6bcd07d Merge branch 'main' of https://github.com/bedlaj/tiny11builder"
+      ]
+    },
+    {
+      "Name": "bluecloud122_tiny11builder",
+      "Url": "https://github.com/bluecloud122/tiny11builder.git",
+      "Branch": "main",
+      "Head": "ed0af96b0152bededa81e541d4cac5c246e496c8",
+      "ChangedFiles": [
+        ".github/workflows/diagnose-iso.yml",
+        ".github/workflows/main.yml",
+        ".github/workflows/repair-iso.yml",
+        ".github/workflows/validate-iso.yml",
+        "README.md",
+        "tiny11Coremaker.ps1",
+        "tiny11LegacyProfile.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/diagnose-iso.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "fbb9c147a1c95a4541cf07250bdef4a64ff390f6",
+          "AddedLines": "147",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/main.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "693d40c81c823bb58680aeab289cfa69723b0ef6",
+          "AddedLines": "306",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/repair-iso.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "e5db72e14611470bde6ca0029d10a6e24320c3e6",
+          "AddedLines": "185",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/validate-iso.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "843a6204c13feeaeedc16bf596405b491dc28f43",
+          "AddedLines": "344",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "9549b02f3230a801cc96143ed08cb4ffb61ac7d0",
+          "AddedLines": "27",
+          "DeletedLines": "1"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "6b1c9edea44f8ea8ef47f43603afcd521363213d",
+          "AddedLines": "69",
+          "DeletedLines": "11"
+        },
+        {
+          "Path": "tiny11LegacyProfile.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "beff09570d2c862f3323a14d034271a02da9ae0e",
+          "AddedLines": "81",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "6d285d359216efa1a0df50747a38b846963004dc",
+          "AddedLines": "72",
+          "DeletedLines": "12"
+        }
+      ],
+      "RecentHeadCommits": [
+        "ed0af96 Extract Windows UDF tree with 7-Zip before ISO repair"
+      ]
+    },
+    {
+      "Name": "chrisGrando_tiny11maker-reforged",
+      "Url": "https://github.com/chrisGrando/tiny11maker-reforged.git",
+      "Branch": "main",
+      "Head": "b59c1b749455d7edd047b54aeb095f154af34fd5",
+      "ChangedFiles": [
+        ".github/FUNDING.yml",
+        ".gitignore",
+        "LAUNCH_TINY11.bat",
+        "lib/AdjPriv.cs",
+        "lib/tiny11gui.psd1",
+        "lib/tiny11gui.psm1",
+        "lib/tiny11utils.psd1",
+        "lib/tiny11utils.psm1",
+        "README.md",
+        "resources/T11M_icon.ico",
+        "resources/T11M_splash.png",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/FUNDING.yml",
+          "OriginalBlob": "b07f46cbe50e2802493c072b435b5eee7ce50343",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "8"
+        },
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "32a0be9fb6cd265b3c20ff65fb20fd5970af11ca",
+          "AddedLines": "3",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "LAUNCH_TINY11.bat",
+          "OriginalBlob": null,
+          "ForkBlob": "c1364c06c797c709248d06f502ec7c0c66844875",
+          "AddedLines": "19",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "lib/AdjPriv.cs",
+          "OriginalBlob": null,
+          "ForkBlob": "d8976ef4ba44108e95d3790c2261b19e92974b9c",
+          "AddedLines": "53",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "lib/tiny11gui.psd1",
+          "OriginalBlob": null,
+          "ForkBlob": "9417763c8ce3d156ee7894720e4d0e4fed23914d",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "lib/tiny11gui.psm1",
+          "OriginalBlob": null,
+          "ForkBlob": "7b5f357152579940926a132490dfd8167616a322",
+          "AddedLines": "465",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "lib/tiny11utils.psd1",
+          "OriginalBlob": null,
+          "ForkBlob": "3db031391d220c1ff846fdbe2e7196d2af931db1",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "lib/tiny11utils.psm1",
+          "OriginalBlob": null,
+          "ForkBlob": "7bbab434e88d1bed0676a3cbeb344efe32217f7f",
+          "AddedLines": "147",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "52cf8e626785e604a53c157c7dc6f965cd69050c",
+          "AddedLines": "68",
+          "DeletedLines": "106"
+        },
+        {
+          "Path": "resources/T11M_icon.ico",
+          "OriginalBlob": null,
+          "ForkBlob": "3380e0beb1625911c7ba604253f15806c37e4ae2",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "resources/T11M_splash.png",
+          "OriginalBlob": null,
+          "ForkBlob": "beb692cb237e96df8488e1fb2e9585833c75771b",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "579"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "e36bbb436a389b2ab0cc602824055fabdcfb18f0",
+          "AddedLines": "388",
+          "DeletedLines": "299"
+        }
+      ],
+      "RecentHeadCommits": [
+        "b59c1b7 Fix file extension typo"
+      ]
+    },
+    {
+      "Name": "DFwindows11_builder",
+      "Url": "https://github.com/DFveloper/DFwindows11_builder.git",
+      "Branch": "main",
+      "Head": "7b96e5e2383e4c6180b06c106926da880615e05b",
+      "ChangedFiles": [
+        ".gitignore",
+        "autounattend.xml",
+        "Browsers/chrome_installer_x64.exe",
+        "removePackage.txt",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "0c084f681f16e1c757e4abeac8784642fc62e615",
+          "AddedLines": "3",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "601be688006621240e713662de315d3dfd3030d9",
+          "AddedLines": "19",
+          "DeletedLines": "5"
+        },
+        {
+          "Path": "Browsers/chrome_installer_x64.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "3fd7ae171328a481465748f54cf100f1bf92056c",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "removePackage.txt",
+          "OriginalBlob": null,
+          "ForkBlob": "afacd02f26d05585962125ad038d68e9f188754f",
+          "AddedLines": "53",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "662bf82cb06082dc1649a61e8addfb2a13416c23",
+          "AddedLines": "441",
+          "DeletedLines": "515"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "fa6150f95497c7a1eff58374913653f7d721f14c",
+          "AddedLines": "209",
+          "DeletedLines": "142"
+        }
+      ],
+      "RecentHeadCommits": [
+        "7b96e5e chrome for default browser"
+      ]
+    },
+    {
+      "Name": "keepitupkitty_tiny11builder",
+      "Url": "https://github.com/keepitupkitty/tiny11builder.git",
+      "Branch": "main",
+      "Head": "802e7d998ccfb4a7ae8c403a0a772c7f62d3ccf8",
+      "ChangedFiles": [
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "d299f4adca2b5b9e0ce86fb56dd5f8c5f21fe7ef",
+          "AddedLines": "71",
+          "DeletedLines": "10"
+        }
+      ],
+      "RecentHeadCommits": [
+        "802e7d9 Update tiny11maker.ps1"
+      ]
+    },
+    {
+      "Name": "MOPELotus_tiny11builder",
+      "Url": "https://github.com/MOPELotus/tiny11builder.git",
+      "Branch": "main",
+      "Head": "834ca1a183fe2034531312f7c32538c92f1b2369",
+      "ChangedFiles": [
+        ".gitignore",
+        "autounattend.xml",
+        "payload/DirectX/.gitkeep",
+        "payload/DotNet/.gitkeep",
+        "payload/Fonts/.gitkeep",
+        "payload/PowerShell/.gitkeep",
+        "payload/README.md",
+        "payload/Store/.gitkeep",
+        "payload/Store/LTSC-Add-MicrosoftStore/Add-Store.cmd",
+        "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.xml",
+        "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.StorePurchaseApp_8wekyb3d8bbwe.xml",
+        "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.WindowsStore_8wekyb3d8bbwe.xml",
+        "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.XboxIdentityProvider_8wekyb3d8bbwe.xml",
+        "payload/Store/LTSC-Add-MicrosoftStore/README.md",
+        "payload/VCRedist/.gitkeep",
+        "payload/Wallpapers/LotusDefault.jpg",
+        "payload/XboxInstaller/.gitkeep",
+        "quickpatch-lotus-iso.ps1",
+        "README.md",
+        "run-lotus-workstation-build.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "37deca7da779366cc18d3adaaf8be8f9e575422d",
+          "AddedLines": "13",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "3951f80ec899a1f83e28f3894b4bc45234d7999e",
+          "AddedLines": "53",
+          "DeletedLines": "12"
+        },
+        {
+          "Path": "payload/DirectX/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/DotNet/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Fonts/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/PowerShell/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/README.md",
+          "OriginalBlob": null,
+          "ForkBlob": "26a51a7b9d923565472482eae0be07447d953496",
+          "AddedLines": "24",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/Add-Store.cmd",
+          "OriginalBlob": null,
+          "ForkBlob": "f1ba3aa2a7f2cfc09d35285ff1889fb67114f9a7",
+          "AddedLines": "185",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "7148124ea4cb3d75f8d4331aa81c001107baa270",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.StorePurchaseApp_8wekyb3d8bbwe.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "8133602449f0f0f2416c293a090c9c9d75b71068",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.WindowsStore_8wekyb3d8bbwe.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "2353283c4c33edabe936220261337eef09f850cf",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/Microsoft.XboxIdentityProvider_8wekyb3d8bbwe.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "e4010ac1b21fae1f5d8c83e80bbb7b8a07ed3d89",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Store/LTSC-Add-MicrosoftStore/README.md",
+          "OriginalBlob": null,
+          "ForkBlob": "f9dd189d50be528d0092590be91f178b20cfde76",
+          "AddedLines": "26",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/VCRedist/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "payload/Wallpapers/LotusDefault.jpg",
+          "OriginalBlob": null,
+          "ForkBlob": "fb47ce47b4dc819ee39c81583214b3ce8d9e7baa",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "payload/XboxInstaller/.gitkeep",
+          "OriginalBlob": null,
+          "ForkBlob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "quickpatch-lotus-iso.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "2f6742edaa4daddef8626e2a15bbe951a6da85f3",
+          "AddedLines": "451",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "b1f02317ad9340846c7cd6266bd11f2e38c92027",
+          "AddedLines": "10",
+          "DeletedLines": "2"
+        },
+        {
+          "Path": "run-lotus-workstation-build.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "6704a64c0d8ce4501e22162fe71994887ec75254",
+          "AddedLines": "329",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "a7b8fdf8b3b3e9d6726a72ab404ebc884cd748b2",
+          "AddedLines": "1590",
+          "DeletedLines": "112"
+        }
+      ],
+      "RecentHeadCommits": [
+        "834ca1a Add optional Office Mondo payload install"
+      ]
+    },
+    {
+      "Name": "namnguyen97x_tiny-auto-builder",
+      "Url": "https://github.com/namnguyen97x/tiny-auto-builder.git",
+      "Branch": "main",
+      "Head": "4f9632e8da5e09b9e1fe10c98d5b7ff3f9812a24",
+      "ChangedFiles": [
+        ".github/workflows/build-ltsc.yml",
+        ".github/workflows/build-optimized.yml",
+        ".gitignore",
+        "autounattend.xml",
+        "IRST_Driver/iastorav.inf_amd64_87f761c07c99d5e7/iastorav.inf",
+        "IRST_Driver/iastorav.inf_amd64_87f761c07c99d5e7/iaStorAVC.sys",
+        "IRST_Driver/iastorhsa_ext.inf_amd64_8d2966f1e32acf3f/iaStorHsa_Ext.cat",
+        "IRST_Driver/iastorhsa_ext.inf_amd64_8d2966f1e32acf3f/iaStorHsa_Ext.inf",
+        "IRST_Driver/iastorhsacomponent.inf_amd64_57169ba0fbe03362/iaStorHsaComponent.cat",
+        "IRST_Driver/iastorhsacomponent.inf_amd64_57169ba0fbe03362/iaStorHsaComponent.inf",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorAfsServiceApi.dll",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorPinningComponent.cat",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorPinningComponent.inf",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/OptaneShellExt.dll",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/PinningServiceApi.dll",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/SharpShell.dll",
+        "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/SharpShellLicense.txt",
+        "IRST_Driver/iastorv.inf_amd64_9c09bd1df352f065/iastorv.inf",
+        "IRST_Driver/iastorv.inf_amd64_9c09bd1df352f065/iaStorV.sys",
+        "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iaStorVD.cat",
+        "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iastorvd.inf",
+        "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iaStorVD.sys",
+        "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/RstMwEventLogMsg.dll",
+        "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/RstMwService.exe",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfs.sys",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfsNative.exe",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfsService.exe",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.cat",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.inf",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.sys",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/Optane.dll",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/OptaneEventLogMsg.dll",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/RstMwEventLogMsg.dll",
+        "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/RstMwService.exe",
+        "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.cat",
+        "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.inf",
+        "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.sys",
+        "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/RstMwEventLogMsg.dll",
+        "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/RstMwService.exe",
+        "ltsc-builder.ps1",
+        "nano11maker.ps1",
+        "parallel-helper.psm1",
+        "presets/default.json",
+        "presets/gaming.json",
+        "presets/minimal-vm.json",
+        "presets/privacy-plus.json",
+        "README_VI.md",
+        "README.md",
+        "tiny11-debloater.psm1",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/build-ltsc.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "355c1ba0f7730337a654f82e7b04d5107055a935",
+          "AddedLines": "382",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/build-optimized.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "0b16e5b08a79addd51c9caf1ba97a3e205dba4f4",
+          "AddedLines": "680",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "aa2baebd92e95e527bcc96e5c1a0d6d16216f233",
+          "AddedLines": "19",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "59be3d083cd90c5dc98f0c0f2b7a16c2ff700cf1",
+          "AddedLines": "25",
+          "DeletedLines": "12"
+        },
+        {
+          "Path": "IRST_Driver/iastorav.inf_amd64_87f761c07c99d5e7/iastorav.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "3e7b15bb20343a85ca0015504505e66bfa2d6378",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorav.inf_amd64_87f761c07c99d5e7/iaStorAVC.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "90e7a9d506f987ce64280a19f3e10c78e895efec",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorhsa_ext.inf_amd64_8d2966f1e32acf3f/iaStorHsa_Ext.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "fe3a509a0f54910ebbcf0a592fc9180979ae7632",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorhsa_ext.inf_amd64_8d2966f1e32acf3f/iaStorHsa_Ext.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "e0e34e5afd82c6617f8765eae8d8c8406cbf708b",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorhsacomponent.inf_amd64_57169ba0fbe03362/iaStorHsaComponent.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "9274e2e876546a6f57d35723695574d1065dba5e",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorhsacomponent.inf_amd64_57169ba0fbe03362/iaStorHsaComponent.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "a7d16190a63a59ae76fe37f0409b28f2ecfa1997",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorAfsServiceApi.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "8fc36c082296de9da919fc33b5b271988777f0ba",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorPinningComponent.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "cdcfeb67b4eb962c993f1c551f7b695c183127bf",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/iaStorPinningComponent.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "01fad92b181d52bf66305d88ade46a7ab5403781",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/OptaneShellExt.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "9d6bc8c48dceb69608075d963c0eb34cfd487cff",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/PinningServiceApi.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "db7b830a1b6978a460fb387754dd0339a0b77792",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/SharpShell.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "b2ab97686e4a74dcc3809394bfdce2b6fefe894d",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorpinningcomponent.inf_amd64_d51acc8493d6b911/SharpShellLicense.txt",
+          "OriginalBlob": null,
+          "ForkBlob": "909db4d32e92a5045f6da388a9b2fba076cefa71",
+          "AddedLines": "7",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "IRST_Driver/iastorv.inf_amd64_9c09bd1df352f065/iastorv.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "81ae77b299388b4be9b31aa980b3b28cc7f2c449",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorv.inf_amd64_9c09bd1df352f065/iaStorV.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "398013810da0df99e7f40d8fc4cfb846c23a73ec",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iaStorVD.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "29497c6317cd07e41c558c4986fc7bc31a62d59e",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iastorvd.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "704b3102ff29d58bad895731a3cb6dcdae4c7258",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/iaStorVD.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "2851f5d1bf9fad9908845d25930ac700b22d940f",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/RstMwEventLogMsg.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "044fc8b8d73e0c18522f2a7af73c0bef0171c0e5",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_09773fc762985b7e/RstMwService.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "69523a54816f66844d918d01d74a92a2104e2c42",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfs.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "645e6bd1f195ec180aecd756e44fd0323cf84cb9",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfsNative.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "bd61ea3c5e10061deac4ce5c1ffe4c4d7bd0bc2e",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorAfsService.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "d73f1994044e6cf0e6150a7ed8b00c8e88136677",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "47daa12a8732cc5df7aec02177d193a8466cb93d",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "ad71aa13ba2e647cc01b7690869ebf21787eddae",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/iaStorVD.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "0a19d0e9c3bd8448dd6bee13bd49006ad23869f8",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/Optane.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "a4f182d44477eddfa0c40c291c5f470971bd01c6",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/OptaneEventLogMsg.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "d461b8348e62fdbbafa01b91bd0f11752656142b",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/RstMwEventLogMsg.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "dcac3d3e3dbb0620b07591d0fefdd77997a68fbf",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_15c9ea6001a5206d/RstMwService.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "91fa7e04d0e9b73d9e02a9d7f5a062dee5839df9",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.cat",
+          "OriginalBlob": null,
+          "ForkBlob": "6dcfbbbce18bb9b4a1c1933c348077841052cad7",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.inf",
+          "OriginalBlob": null,
+          "ForkBlob": "17b1324fbb702d45480bfae8054e151691552c80",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/iaStorVD.sys",
+          "OriginalBlob": null,
+          "ForkBlob": "e4f03b3a4bcd97ed3538b9bebfc54e05c1df7107",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/RstMwEventLogMsg.dll",
+          "OriginalBlob": null,
+          "ForkBlob": "d4866775700f033c570452bc0b5a2c67eaa23a4d",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "IRST_Driver/iastorvd.inf_amd64_d0ba3dc7378fedf6/RstMwService.exe",
+          "OriginalBlob": null,
+          "ForkBlob": "e43aaf2d3ea8565777e8d0c6f1ff41210efa8191",
+          "AddedLines": "-",
+          "DeletedLines": "-"
+        },
+        {
+          "Path": "ltsc-builder.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "4533011b4cc3dd8fae14735ed7c87684e351152c",
+          "AddedLines": "1241",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "nano11maker.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "ebaf574c73382176c8cb65276cc277708e44edc8",
+          "AddedLines": "1406",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "parallel-helper.psm1",
+          "OriginalBlob": null,
+          "ForkBlob": "195494c3811425f92826470afd9daca3c492e742",
+          "AddedLines": "186",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "presets/default.json",
+          "OriginalBlob": null,
+          "ForkBlob": "a90ba49eeeffb4d5006b79ed4232f18b82f27ea4",
+          "AddedLines": "25",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "presets/gaming.json",
+          "OriginalBlob": null,
+          "ForkBlob": "68efc656573939811f01a56bf6b193fee0ba53ad",
+          "AddedLines": "28",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "presets/minimal-vm.json",
+          "OriginalBlob": null,
+          "ForkBlob": "e74e3751d9b90c05f8708a07ff6f4d906e7821c5",
+          "AddedLines": "25",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "presets/privacy-plus.json",
+          "OriginalBlob": null,
+          "ForkBlob": "4d99051aa691bec43817eb922f644cf41d27b1ca",
+          "AddedLines": "29",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README_VI.md",
+          "OriginalBlob": null,
+          "ForkBlob": "05a81a62d41cdb344b1bc8abd2c08d2d1c3aef4f",
+          "AddedLines": "173",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "a126577f35faa3f29a0c218f4dcbf97e6e3b94c5",
+          "AddedLines": "149",
+          "DeletedLines": "98"
+        },
+        {
+          "Path": "tiny11-debloater.psm1",
+          "OriginalBlob": null,
+          "ForkBlob": "e0d17dbf2cc4e1a4eed20feddd9031ebaa6166e1",
+          "AddedLines": "832",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "3d3ccccecafe42937ff6f0bb0a699372b52732dd",
+          "AddedLines": "1177",
+          "DeletedLines": "217"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "8e8041887b99f58a72ca9ca4b61fa5f45c937123",
+          "AddedLines": "947",
+          "DeletedLines": "83"
+        }
+      ],
+      "RecentHeadCommits": [
+        "4f9632e perf: boost runner performance with Process Priority High, max threads, and host AV real-time bypass"
+      ]
+    },
+    {
+      "Name": "ntdevlabs_tiny11builder_upstream",
+      "Url": "https://github.com/ntdevlabs/tiny11builder.git",
+      "Branch": "main",
+      "Head": "00e7d8a151a39ccffccab4a267bb81fb3756a01d",
+      "ChangedFiles": [],
+      "FileDiffs": [],
+      "RecentHeadCommits": [
+        "00e7d8a Merge pull request #441 from FrysCrypto/main",
+        "af06d5a Update tiny11maker.ps1",
+        "b8cd6e9 Update README.md",
+        "44da0a4 Merge pull request #419 from Miiraak/tiny11maker-patch-#1",
+        "4a24bff Correction typo in comment and output",
+        "a3bb93e Remove duplicated reg. keys",
+        "e575291 Update log path and name",
+        "bde07ab Merge pull request #395 from Miiraak/Merged-PR-tiny11maker.ps1"
+      ]
+    },
+    {
+      "Name": "prismatecas-ui_tiny11builder",
+      "Url": "https://github.com/prismatecas-ui/tiny11builder.git",
+      "Branch": "main",
+      "Head": "c7dd8ac88365eaf158700466fa950c2f8b93b62a",
+      "ChangedFiles": [
+        ".gitignore",
+        "autounattend.xml",
+        "README.md",
+        "tiny11Coremaker.ps1",
+        "Tiny11Gui.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "a3c6acc6533ce9738d12c26465b04d87d482b993",
+          "AddedLines": "32",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "37"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "ddd65affd5e92a34729ec37beb5d61de6d1b9f1b",
+          "AddedLines": "35",
+          "DeletedLines": "31"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "5456aa7620e5f99f9c995496c1b04e777f48a8a1",
+          "AddedLines": "300",
+          "DeletedLines": "208"
+        },
+        {
+          "Path": "Tiny11Gui.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "ffa06428fe0508cf7dc90f341931d82ef02c3da5",
+          "AddedLines": "634",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "20e74160c92fa022d7dc3db041f311cb4dbc7d6d",
+          "AddedLines": "194",
+          "DeletedLines": "145"
+        }
+      ],
+      "RecentHeadCommits": [
+        "c7dd8ac Update Tiny11Gui.ps1"
+      ]
+    },
+    {
+      "Name": "SamHimmy_tiny11builder",
+      "Url": "https://github.com/SamHimmy/tiny11builder.git",
+      "Branch": "main",
+      "Head": "ebdb5b84bd1e1f0835a460740cb65cd5b753134c",
+      "ChangedFiles": [
+        "autounattend.xml",
+        "README.md",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "552061ef9219623e6609b3fbf7fd0d8a05fa7eea",
+          "AddedLines": "5",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "d8689c0a6f9e3403e1138d4cb0b1e9e1cfabf29d",
+          "AddedLines": "1",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "c7df780feee572165d0a539a90be6d0295e9ea57",
+          "AddedLines": "46",
+          "DeletedLines": "3"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "237bbae9473693a0d8ed270ce636e12352fabb4e",
+          "AddedLines": "48",
+          "DeletedLines": "3"
+        }
+      ],
+      "RecentHeadCommits": [
+        "ebdb5b8 Update autounattend.xml"
+      ]
+    },
+    {
+      "Name": "user129233_tiny11builder",
+      "Url": "https://github.com/user129233/tiny11builder.git",
+      "Branch": "main",
+      "Head": "0fe96cbddc72b558c608ed87b25369d42d53f6e6",
+      "ChangedFiles": [
+        ".github/FUNDING.yml",
+        "autounattend.xml",
+        "README.md",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1",
+        "unattended.xml"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/FUNDING.yml",
+          "OriginalBlob": "b07f46cbe50e2802493c072b435b5eee7ce50343",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "8"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "5e12ab8f0254ec099d8355b6f0984fb8985c1e82",
+          "AddedLines": "9",
+          "DeletedLines": "2"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "dfd0682f6e46cfdec054010d6fa28bdd180ac9cc",
+          "AddedLines": "13",
+          "DeletedLines": "1"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "579"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "880c5e700f545fc11d72ae4bc7aef8510292b6d2",
+          "AddedLines": "139",
+          "DeletedLines": "86"
+        },
+        {
+          "Path": "unattended.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "289550d6edcc177a9307e1e8fbc95cdbac935bec",
+          "AddedLines": "398",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "0fe96cb Update README.md"
+      ]
+    },
+    {
+      "Name": "vinisebold_tiny11builder-revamped",
+      "Url": "https://github.com/vinisebold/tiny11builder-revamped.git",
+      "Branch": "main",
+      "Head": "4091abd48876d065f2646f5ef39742d606914330",
+      "ChangedFiles": [
+        ".gitignore",
+        "ANALISE_REFORGED_MELHORIAS_APLICAVEIS_2026-04-13.md",
+        "autounattend.xml",
+        "lib/tiny11utils.psm1",
+        "PR_AUDIT_ORIGINAL_2026-04-13.md",
+        "PR_TIERLIST_IMPLEMENTACAO_2026-04-13.md",
+        "README.md",
+        "removePackage.txt",
+        "Run.bat",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "0c084f681f16e1c757e4abeac8784642fc62e615",
+          "AddedLines": "3",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "ANALISE_REFORGED_MELHORIAS_APLICAVEIS_2026-04-13.md",
+          "OriginalBlob": null,
+          "ForkBlob": "84f6690b9b6f1512fa11e4177ed5cb62f8ef2541",
+          "AddedLines": "237",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "173744a1fcfbf62b0f607fe71876ad326872a821",
+          "AddedLines": "20",
+          "DeletedLines": "5"
+        },
+        {
+          "Path": "lib/tiny11utils.psm1",
+          "OriginalBlob": null,
+          "ForkBlob": "d352e2527ed22ff13441804cfc639493e6afc1b6",
+          "AddedLines": "235",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "PR_AUDIT_ORIGINAL_2026-04-13.md",
+          "OriginalBlob": null,
+          "ForkBlob": "20c7834ddd452d19e05e9e3d9443d6d81cdca503",
+          "AddedLines": "126",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "PR_TIERLIST_IMPLEMENTACAO_2026-04-13.md",
+          "OriginalBlob": null,
+          "ForkBlob": "93bfdfd88956a3343977877a7723c4dee2352cf7",
+          "AddedLines": "79",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "10ac4837d3ee57202c7dab5575292e3eac242501",
+          "AddedLines": "51",
+          "DeletedLines": "16"
+        },
+        {
+          "Path": "removePackage.txt",
+          "OriginalBlob": null,
+          "ForkBlob": "69cdc486f01d65b2118e6f0c91d46d048129bd03",
+          "AddedLines": "55",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "Run.bat",
+          "OriginalBlob": null,
+          "ForkBlob": "996c80af8b85c6469009a0c9bf60177d30f3a6ae",
+          "AddedLines": "5",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "7204ed044f0d2c2812ba2213c8d9dd4bc45e4d25",
+          "AddedLines": "249",
+          "DeletedLines": "114"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "2927d3db9747c5d5fc7b3241ba38622a07958f39",
+          "AddedLines": "424",
+          "DeletedLines": "135"
+        }
+      ],
+      "RecentHeadCommits": [
+        "4091abd feat: harden offline build flow and add reforged analysis docs"
+      ]
+    },
+    {
+      "Name": "YmlyZA_tiny11builder",
+      "Url": "https://github.com/YmlyZA/tiny11builder.git",
+      "Branch": "main",
+      "Head": "b79056703ab64aafc8e592d2426a522476f71e72",
+      "ChangedFiles": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "autounattend.xml",
+        "build.ps1",
+        "docs/superpowers/plans/2026-06-30-speed-and-testability.md",
+        "docs/superpowers/plans/2026-06-30-tiny11-core-modernization.md",
+        "docs/superpowers/plans/2026-07-01-build-summary.md",
+        "docs/superpowers/plans/2026-07-01-ci-workflow.md",
+        "docs/superpowers/plans/2026-07-01-log-cleanliness.md",
+        "docs/superpowers/plans/2026-07-01-preflight-validation.md",
+        "docs/superpowers/plans/2026-07-01-robustness-esd-iso.md",
+        "docs/superpowers/plans/2026-07-01-unattended-install.md",
+        "docs/superpowers/plans/2026-07-03-help-usage.md",
+        "docs/superpowers/specs/2026-06-30-speed-and-testability-design.md",
+        "docs/superpowers/specs/2026-06-30-tiny11-core-modernization-design.md",
+        "docs/superpowers/specs/2026-07-01-build-summary-design.md",
+        "docs/superpowers/specs/2026-07-01-ci-workflow-design.md",
+        "docs/superpowers/specs/2026-07-01-log-cleanliness-design.md",
+        "docs/superpowers/specs/2026-07-01-preflight-validation-design.md",
+        "docs/superpowers/specs/2026-07-01-robustness-esd-iso-design.md",
+        "docs/superpowers/specs/2026-07-01-unattended-install-design.md",
+        "docs/superpowers/specs/2026-07-03-help-usage-design.md",
+        "README.md",
+        "scripts/linter.ps1",
+        "scripts/parse-check.ps1",
+        "scripts/test-core-helpers.ps1",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/ci.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "ed8d0a2281c3ea524133520039ad18ffa2994627",
+          "AddedLines": "32",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "4d85a007b2dc969590b42de23c87a6b56ac35221",
+          "AddedLines": "15",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": null,
+          "AddedLines": "0",
+          "DeletedLines": "37"
+        },
+        {
+          "Path": "build.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "99631ab125f628cce7f18fdf6faca1b1545814b6",
+          "AddedLines": "21",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-06-30-speed-and-testability.md",
+          "OriginalBlob": null,
+          "ForkBlob": "c41ccf6a7f5d5e37b37f77c216e58f4e979cc781",
+          "AddedLines": "821",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-06-30-tiny11-core-modernization.md",
+          "OriginalBlob": null,
+          "ForkBlob": "60dc84a7def3e2d2eebbfc0f170bd65f02758d9f",
+          "AddedLines": "773",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-build-summary.md",
+          "OriginalBlob": null,
+          "ForkBlob": "18508a090abc934e0dae9495cc2a226968fcae71",
+          "AddedLines": "308",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-ci-workflow.md",
+          "OriginalBlob": null,
+          "ForkBlob": "573fc0f8f9ff06210b479484f355ae636ccbf28d",
+          "AddedLines": "116",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-log-cleanliness.md",
+          "OriginalBlob": null,
+          "ForkBlob": "bf4785dda527712b053d9310088d6c02144415c0",
+          "AddedLines": "203",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-preflight-validation.md",
+          "OriginalBlob": null,
+          "ForkBlob": "a53de97cb41f892fd3ae74c010c93c6acf26c1c0",
+          "AddedLines": "618",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-robustness-esd-iso.md",
+          "OriginalBlob": null,
+          "ForkBlob": "a35d3a26599710fb0453fd3061ec9b7f7b999d03",
+          "AddedLines": "242",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-01-unattended-install.md",
+          "OriginalBlob": null,
+          "ForkBlob": "628976201835d50443db79709d276f09abec8691",
+          "AddedLines": "447",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/plans/2026-07-03-help-usage.md",
+          "OriginalBlob": null,
+          "ForkBlob": "2a411cfbce9985cd5b8b728178adc5ba4dba5355",
+          "AddedLines": "223",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-06-30-speed-and-testability-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "9f389889db7b0b6883683c2c5c59051fb00afab8",
+          "AddedLines": "145",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-06-30-tiny11-core-modernization-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "99fa1ee680b65b8fe384ed2f119f1e63439f5d56",
+          "AddedLines": "198",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-build-summary-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "ecb1172b537696e55382137a82ab443f4ba676ca",
+          "AddedLines": "122",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-ci-workflow-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "fa512e63f021ab096742bebfb0ee16700757675e",
+          "AddedLines": "97",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-log-cleanliness-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "60f654d0800ac7deeb5eed5c1ffb456e5b700849",
+          "AddedLines": "105",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-preflight-validation-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "41ffeb608c398bb31408581d2e7b92c8cc5195f4",
+          "AddedLines": "150",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-robustness-esd-iso-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "71ba4b0c10a176c834c88b6da47400edb15a2678",
+          "AddedLines": "125",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-01-unattended-install-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "ac67e19c7ca6f1c4ec4321872b1be5657e15e536",
+          "AddedLines": "137",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/superpowers/specs/2026-07-03-help-usage-design.md",
+          "OriginalBlob": null,
+          "ForkBlob": "3be7c0c2f844bbca14edb2dc1186f8e7c5171fa5",
+          "AddedLines": "78",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "69be5ea5cc0714198f2b5eadb294bfbd674f8901",
+          "AddedLines": "102",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "scripts/linter.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "5a4c96eaf65455edd6f48457c938ad8e2fc4e9fb",
+          "AddedLines": "51",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "scripts/parse-check.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "6cf96b232ef5084692f002661d4df9ffd56c099c",
+          "AddedLines": "31",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "scripts/test-core-helpers.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "646c82eaa0fc567c6775358351191c39dab2b5ca",
+          "AddedLines": "251",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "1da62e28681caa1588c9f5a947b29633fa73a033",
+          "AddedLines": "862",
+          "DeletedLines": "130"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "6df6fcaf86591aec9ff8d8374c69241f5baa8f80",
+          "AddedLines": "480",
+          "DeletedLines": "48"
+        }
+      ],
+      "RecentHeadCommits": [
+        "b790567 Merge pull request #10 from YmlyZA/harden/core-error-handling"
+      ]
+    },
+    {
+      "Name": "zPoche_tiny11builder-v2",
+      "Url": "https://github.com/zPoche/tiny11builder-v2.git",
+      "Branch": "main",
+      "Head": "9fa3c67d910ca6dde3c50b315ccf606c75effcb7",
+      "ChangedFiles": [
+        ".gitignore",
+        "autounattend-arm64.xml",
+        "autounattend.xml",
+        "README.md",
+        "removePackage.txt",
+        "tiny11Coremaker.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "9dd847a09f8c5cc055440f72cd95c0f14b7c7503",
+          "AddedLines": "5",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend-arm64.xml",
+          "OriginalBlob": null,
+          "ForkBlob": "da39ccd1ba9301a708d4a9a5a4524732a04a86f9",
+          "AddedLines": "43",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "5a232d96d61d38f3d13c9376c71caff5438c9cba",
+          "AddedLines": "7",
+          "DeletedLines": "1"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "6a293a3ede226c3531d61770192a23f26d570a4c",
+          "AddedLines": "45",
+          "DeletedLines": "14"
+        },
+        {
+          "Path": "removePackage.txt",
+          "OriginalBlob": null,
+          "ForkBlob": "d2c97e09889733a8a7a7398618465442ed93373c",
+          "AddedLines": "56",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11Coremaker.ps1",
+          "OriginalBlob": "439768abafff0d80fa38e9f87bd4f71c4fd416b9",
+          "ForkBlob": "88aa8cb5b4a78fa5eafc8abae06e929f27e155ea",
+          "AddedLines": "643",
+          "DeletedLines": "288"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "3b3e9a38dbd856d7d77896d3163ff2af11fff78b",
+          "AddedLines": "830",
+          "DeletedLines": "264"
+        }
+      ],
+      "RecentHeadCommits": [
+        "9fa3c67 Fix boot.wim mount failure by recreating scratchdir after cleanup (#5)"
+      ]
+    },
+    {
+      "Name": "u0reo_tiny11builder_25h2",
+      "Url": "https://github.com/u0reo/tiny11builder.git",
+      "Branch": "feature/25h2-patch",
+      "Head": "81475d33a3a04a57ab271a5736945fa7aa1ba43f",
+      "ChangedFiles": [
+        "autounattend.xml",
+        "README-ja.md",
+        "README.md",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "2586dac955686f30d2826b4f8e073fc4a9553a61",
+          "AddedLines": "5",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README-ja.md",
+          "OriginalBlob": null,
+          "ForkBlob": "7a5b4c5f008ae8c1e9c24ecc8f87371f20700901",
+          "AddedLines": "154",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "fb36af6b8558d4b0dd15e650fa75a717d7082985",
+          "AddedLines": "46",
+          "DeletedLines": "1"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "81efd3111cdb9f9f5298b891b6a01fdc2c454082",
+          "AddedLines": "246",
+          "DeletedLines": "1"
+        }
+      ],
+      "RecentHeadCommits": [
+        "81475d3 Revert REG_SZ CopilotDisabledReason and SettingsPageVisibility direct writes",
+        "397ad23 Revert disable WindowsAI service and AI scheduled task removal",
+        "301c5e0 Update documentation and add Japanese README",
+        "260c253 Document disabled services and advertising ID",
+        "3f5fe01 Disable offline maps service",
+        "84c6ed9 Disable Remote Registry service",
+        "130f607 Disable advertising ID for all users",
+        "fb71557 Document additional removals"
+      ]
+    },
+    {
+      "Name": "luyingwei80_tiny11builder_multi",
+      "Url": "https://github.com/luyingwei80/tiny11builder.git",
+      "Branch": "Tony-patch-multi",
+      "Head": "da9f5ace4cb542f08baee8b300dcb7cfd4e63f84",
+      "ChangedFiles": [
+        "autounattend.xml",
+        "win11-multi.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "90895dc4099de85daa9b094e66277e19393a378b",
+          "AddedLines": "19",
+          "DeletedLines": "18"
+        },
+        {
+          "Path": "win11-multi.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "94c0ce24670f4ce4165ef6995ee2edb9ca1623a8",
+          "AddedLines": "726",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "da9f5ac Add files via upload",
+        "00e7d8a Merge pull request #441 from FrysCrypto/main",
+        "af06d5a Update tiny11maker.ps1",
+        "b8cd6e9 Update README.md",
+        "44da0a4 Merge pull request #419 from Miiraak/tiny11maker-patch-#1",
+        "4a24bff Correction typo in comment and output",
+        "a3bb93e Remove duplicated reg. keys",
+        "e575291 Update log path and name"
+      ]
+    },
+    {
+      "Name": "pi0n00r_tiny11builder_26h2",
+      "Url": "https://github.com/pi0n00r/tiny11builder.git",
+      "Branch": "deployment/2026-26h2",
+      "Head": "fe73f6e834c3c7b30b631982e57a19f1b1076f15",
+      "ChangedFiles": [
+        ".github/workflows/powershell-analysis.yml",
+        "autounattend.xml",
+        "docs/deployment-2026-25h2.md",
+        "docs/deployment-2026-26h2.md",
+        "docs/tiny11-build-playbook.md",
+        "README.md",
+        "tests/NativeCommand.Tests.ps1",
+        "tests/Static.Tests.ps1",
+        "tiny11maker.ps1"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/powershell-analysis.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "be2df0a88dff00874dc08f32a5fbfa552ddf2a2a",
+          "AddedLines": "37",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "autounattend.xml",
+          "OriginalBlob": "08897e97ba6f63511affe9e235ea47494bbdd651",
+          "ForkBlob": "ff76784f01fb5f2ecec662d943c33200bc2865ad",
+          "AddedLines": "1",
+          "DeletedLines": "3"
+        },
+        {
+          "Path": "docs/deployment-2026-25h2.md",
+          "OriginalBlob": null,
+          "ForkBlob": "ef4808ca6510b3e4671b956caa16bdd1fe42d3ab",
+          "AddedLines": "245",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/deployment-2026-26h2.md",
+          "OriginalBlob": null,
+          "ForkBlob": "cc7e09146a236fd70a00f3b62bcca0054c6de985",
+          "AddedLines": "318",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "docs/tiny11-build-playbook.md",
+          "OriginalBlob": null,
+          "ForkBlob": "f95b192b5c5168f9688627474a6b78da6bf5674d",
+          "AddedLines": "567",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "8ca366db333273e20c41a96cfadb0d410cd98368",
+          "AddedLines": "60",
+          "DeletedLines": "25"
+        },
+        {
+          "Path": "tests/NativeCommand.Tests.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "80eb581e5958c390dbffcb89e763bd8ae5550a53",
+          "AddedLines": "37",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tests/Static.Tests.ps1",
+          "OriginalBlob": null,
+          "ForkBlob": "b666b134670395ba640efd65dde35f29c61c9e39",
+          "AddedLines": "253",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11maker.ps1",
+          "OriginalBlob": "c24757f2b859302adfd799e464d8b2d8021993d0",
+          "ForkBlob": "f1f7e4447313058d31c24e59b327462dc5b00e44",
+          "AddedLines": "703",
+          "DeletedLines": "461"
+        }
+      ],
+      "RecentHeadCommits": [
+        "fe73f6e Add fourth Native NVMe override for 26H2 candidate",
+        "a6c0390 Fix PowerShell native-tool handling and record 26H2 NVMe evidence",
+        "ad2e880 Document verified 26H2 Media Creation Tool source",
+        "d95cc48 Prepare guarded Windows 11 26H2 deployment profile",
+        "b766f86 Update checkout action runtime",
+        "bc52eb6 Add Windows 11 25H2 deployment profile",
+        "8b4980d Add 2024-derived fleet deployment lane",
+        "b87486a Harden tiny11 build lifecycle"
+      ]
+    },
+    {
+      "Name": "391546581_tiny11builder",
+      "Url": "https://github.com/391546581/tiny11builder.git",
+      "Branch": "main",
+      "Head": "8d43b220bd8b21e013e77959efa5500a1aca698c",
+      "ChangedFiles": [
+        ".github/workflows/private-windows-image.yml",
+        ".github/workflows/rdp-windows.yml",
+        ".github/workflows/test-windows-app.yml",
+        "rdk-setting.md"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/private-windows-image.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "bccfa802540d7003508e5d2dfbd02eea8e052cba",
+          "AddedLines": "121",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/rdp-windows.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "cfc9cd622dca20bd90216d651dd3257211d3135a",
+          "AddedLines": "194",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": ".github/workflows/test-windows-app.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "10242282842c60119b0cc38c6380d8bfdd5f86b2",
+          "AddedLines": "121",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "rdk-setting.md",
+          "OriginalBlob": null,
+          "ForkBlob": "add5bdc564676e6d56924daa4e4ab3a8c5bfa242",
+          "AddedLines": "24",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "8d43b22 Update rdp-windows.yml",
+        "8716faf Update rdp-windows.yml",
+        "7c746f7 Update rdp-windows.yml",
+        "1a1f084 Create rdk-setting.md",
+        "214bf84 Add workflow to test Windows app with screenshots",
+        "132e92f Create private-windows-image.yml",
+        "01a083f Create rdp-windows.yml",
+        "00e7d8a Merge pull request #441 from FrysCrypto/main"
+      ]
+    },
+    {
+      "Name": "icis-org_tiny11builder",
+      "Url": "https://github.com/icis-org/tiny11builder.git",
+      "Branch": "main",
+      "Head": "7bff69b4a759bf831253bf3474627af91efabe38",
+      "ChangedFiles": [
+        ".github/workflows/build.yml"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".github/workflows/build.yml",
+          "OriginalBlob": null,
+          "ForkBlob": "2b27e702236928dad1c08b2a2dff94cc0fa38ef2",
+          "AddedLines": "51",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "7bff69b Refactor ISO mounting and script execution steps",
+        "67ba3fb Update build.yml",
+        "c3e688b Update build.yml",
+        "6f3057c Update ISO download method and step names in build.yml",
+        "ed3b9f4 Create build.yml",
+        "00e7d8a Merge pull request #441 from FrysCrypto/main",
+        "af06d5a Update tiny11maker.ps1",
+        "b8cd6e9 Update README.md"
+      ]
+    },
+    {
+      "Name": "lexp-hub_tiny11builder_sh",
+      "Url": "https://github.com/lexp-hub/tiny11builder.sh.git",
+      "Branch": "main",
+      "Head": "f1911ff61dc41cfb9af4b7f72ff9083dd105ee3d",
+      "ChangedFiles": [
+        ".gitignore",
+        "README.md",
+        "tiny11_hive.py",
+        "tiny11maker.sh"
+      ],
+      "FileDiffs": [
+        {
+          "Path": ".gitignore",
+          "OriginalBlob": null,
+          "ForkBlob": "b5d27db5abb2dc7a757e9ed901a3baf60b1d39c8",
+          "AddedLines": "6",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "README.md",
+          "OriginalBlob": "72ed8787d2e9dbf3cfee5c844de5a65ba29fcdde",
+          "ForkBlob": "6b48438f96d35006b04a89baf6ff99aed921d36f",
+          "AddedLines": "84",
+          "DeletedLines": "58"
+        },
+        {
+          "Path": "tiny11_hive.py",
+          "OriginalBlob": null,
+          "ForkBlob": "df77d06e22743dc94af06f426cf72d503d03403c",
+          "AddedLines": "284",
+          "DeletedLines": "0"
+        },
+        {
+          "Path": "tiny11maker.sh",
+          "OriginalBlob": null,
+          "ForkBlob": "41446f039d6a902ee810eff14cbccdb15e5a1081",
+          "AddedLines": "654",
+          "DeletedLines": "0"
+        }
+      ],
+      "RecentHeadCommits": [
+        "f1911ff Move apply_hive to top-level helper functions for resume mode",
+        "4461b1c Fix case-sensitive hive matching on Linux and add resume support",
+        "2990023 Add Linux/macOS support (tiny11maker.sh) and update README for fork",
+        "00e7d8a Merge pull request #441 from FrysCrypto/main",
+        "af06d5a Update tiny11maker.ps1",
+        "b8cd6e9 Update README.md",
+        "44da0a4 Merge pull request #419 from Miiraak/tiny11maker-patch-#1",
+        "4a24bff Correction typo in comment and output"
+      ]
+    }
+  ]
+}

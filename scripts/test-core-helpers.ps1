@@ -326,6 +326,90 @@ CheckThrows 'Set refuses unloaded offline hive'    { Set-RegistryValue 'HKLM\zSO
 CheckThrows 'Remove refuses unloaded offline hive' { Remove-RegistryValue 'HKLM\zSOFTWARE\Tiny11Test' }
 
 #======================================================================
+#======================================================================
+Section 'Source/workspace separation'
+Assert-SourceWorkspaceSeparation -SourceRoot 'E:\' -WorkRoot 'C:\.temp\build\tiny11'
+Assert-SourceWorkspaceSeparation -SourceRoot 'C:\source' -WorkRoot 'C:\source2'
+Check 'separate drives and sibling name prefixes are allowed' $true
+CheckThrows 'work inside source is refused before copying' { Assert-SourceWorkspaceSeparation -SourceRoot 'C:\' -WorkRoot 'C:\.temp\tiny11' }
+CheckThrows 'source inside work is refused' { Assert-SourceWorkspaceSeparation -SourceRoot 'C:\work\source' -WorkRoot 'C:\work' }
+CheckThrows 'equal paths ignore case and trailing separators' { Assert-SourceWorkspaceSeparation -SourceRoot 'C:\Source\' -WorkRoot 'c:\source' }
+CheckThrows 'normalized parent segments cannot bypass separation' { Assert-SourceWorkspaceSeparation -SourceRoot 'C:\source' -WorkRoot 'C:\source\other\..' }
+
+Section 'Offline default control set selection'
+$module=Get-Module tiny11utils
+$global:T11Test=@{ Default=2; Missing=$false; MissingSelect=$false; Denied=$false; ProtectedPath=$null; Paths=@(); Native=@() }
+& $module {
+    function script:Get-ItemProperty {
+        param($LiteralPath,$Name)
+        if ($global:T11Test.MissingSelect) { throw 'missing Select key' }
+        if ($LiteralPath -ne 'Registry::HKEY_LOCAL_MACHINE\zSYSTEM\Select' -or $Name -ne 'Default') { throw 'Unexpected live registry read' }
+        [pscustomobject]@{ Default=$global:T11Test.Default }
+    }
+    function script:Test-Path {
+        param($LiteralPath)
+        $global:T11Test.Paths+= $LiteralPath
+        return (-not $global:T11Test.Missing)
+    }
+    function script:Assert-OfflineHiveLoaded { param($Path) }
+    function script:Invoke-Native {
+        param($FilePath,$ArgumentList,[switch]$PassThru,$TimeoutSeconds)
+        $global:T11Test.Native+= ,@($ArgumentList)
+        if ($PassThru) {
+            if ($global:T11Test.Denied) { [pscustomobject]@{ ExitCode=1; Output=@('Access is denied') } }
+            else { [pscustomobject]@{ ExitCode=0; Output=@() } }
+        } else { 0 }
+    }
+}
+try {
+    Check 'Default=2 selects next-boot ControlSet002' ((Get-OfflineDefaultControlSetName) -eq 'ControlSet002')
+    Invoke-RegLoad -HiveName zSYSTEM -FilePath (Join-Path $repo 'logs\mock-system.hiv')
+    Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Test' 'Value' REG_DWORD '1' | Out-Null
+    Check 'catalog registry writes use selected control set' ($global:T11Test.Native[-1][1] -eq 'HKLM\zSYSTEM\ControlSet002\Control\Test')
+    Remove-RegistryValue 'HKEY_LOCAL_MACHINE\zSYSTEM\ControlSet001\Control\Test' | Out-Null
+    Check 'deletes use selected control set and normalize long hive spelling' ($global:T11Test.Native[-1][1] -eq 'HKLM\zSYSTEM\ControlSet002\Control\Test')
+    Check 'service start changes succeed in selected set' (Set-OfflineServiceStart -Name DiagTrack -Start 4)
+    Check 'service presence query uses selected set' ($global:T11Test.Paths[-1] -eq 'Registry::HKEY_LOCAL_MACHINE\zSYSTEM\ControlSet002\Services\DiagTrack')
+    Check 'service write uses selected set' ($global:T11Test.Native[-1][1] -eq 'HKLM\zSYSTEM\ControlSet002\Services\DiagTrack')
+    & $module {
+        function script:Set-ProtectedOfflineRegistryValue {
+            param($Path,$ArgumentList)
+            $global:T11Test.ProtectedPath=$Path
+        }
+    } | Out-Null
+    $global:T11Test.Denied=$true
+    Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Test' 'Protected' REG_DWORD '0' | Out-Null
+    Check 'denied DWORD fallback receives the selected offline subkey' ($global:T11Test.ProtectedPath -eq 'HKLM\zSYSTEM\ControlSet002\Control\Test')
+    $global:T11Test.Denied=$false; $global:T11Test.Missing=$true
+    $before=$global:T11Test.Native.Count
+    Check 'missing selected-set service is skipped' (-not (Set-OfflineServiceStart -Name AbsentService -Start 4))
+    Check 'missing selected-set service never invokes a registry write' ($global:T11Test.Native.Count -eq $before)
+    $global:T11Test.Missing=$false
+    Check 'non-SYSTEM path unchanged' ((Resolve-OfflineControlSetPath 'HKLM\zSOFTWARE\Policies\Test') -eq 'HKLM\zSOFTWARE\Policies\Test')
+    Check 'explicit other set unchanged' ((Resolve-OfflineControlSetPath 'HKLM\zSYSTEM\ControlSet003\Test') -eq 'HKLM\zSYSTEM\ControlSet003\Test')
+    Check 'lookalike set unchanged' ((Resolve-OfflineControlSetPath 'HKLM\zSYSTEM\ControlSet0010\Test') -eq 'HKLM\zSYSTEM\ControlSet0010\Test')
+    Check 'non-controlset SYSTEM key unchanged' ((Resolve-OfflineControlSetPath 'HKLM\zSYSTEM\Setup\LabConfig') -eq 'HKLM\zSYSTEM\Setup\LabConfig')
+    Invoke-RegUnload -HiveName zSYSTEM | Out-Null
+    Check 'unload resets selection between images' ((Resolve-OfflineControlSetPath 'HKLM\zSYSTEM\ControlSet001\Test') -eq 'HKLM\zSYSTEM\ControlSet001\Test')
+    $global:T11Test.Default=1
+    Check 'normal Default=1 keeps original behavior' ((Get-OfflineDefaultControlSetName) -eq 'ControlSet001')
+    foreach($invalid in 0,1000,'bad',$null) {
+        $global:T11Test.Default=$invalid
+        CheckThrows "invalid default '$invalid' refuses guessing" { Get-OfflineDefaultControlSetName }
+    }
+    $global:T11Test.Default=2; $global:T11Test.Missing=$true
+    CheckThrows 'nonexistent selected set is refused' { Get-OfflineDefaultControlSetName }
+    $global:T11Test.Missing=$false; $global:T11Test.MissingSelect=$true
+    CheckThrows 'missing Select key is refused' { Invoke-RegLoad -HiveName zSYSTEM -FilePath (Join-Path $repo 'logs\mock-system.hiv') }
+    Check 'failed selection still tracks attached hive for cleanup' (& $module { $Script:LoadedRegHives.Contains('zSYSTEM') })
+    Invoke-RegUnload -HiveName zSYSTEM | Out-Null
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+}
+$catalog=Get-TweakCatalog
+Check 'cloud search disabled only in opt-out-able Search group' ((@($catalog | Where-Object Id -eq Search)[0].Set -contains 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search|AllowCloudSearch|REG_DWORD|0') -and (@(Get-TweakPlan -Flags (Resolve-BuildPreset) -Skip Search | Where-Object Id -eq Search).Count -eq 0))
+
 Section 'Scheduled tasks'
 $tasks = Get-TelemetryScheduledTasks
 Check 'task list not empty'                ($tasks.Count -ge 10)
@@ -425,7 +509,7 @@ Check 'bootdata BIOS+UEFI'                 ((Get-OscdimgBootArgument -ImageRoot 
 Check 'bootdata ARM64 UEFI-only'           ((Get-OscdimgBootArgument -ImageRoot 'X:\t' -Architecture arm64 -SkipFileCheck) -eq '-bootdata:1#pEF,e,bX:\t\efi\microsoft\boot\efisys.bin')
 Check 'bootdata no-prompt'                 ((Get-OscdimgBootArgument -ImageRoot 'X:\t' -NoPrompt -SkipFileCheck) -match 'efisys_noprompt\.bin$')
 CheckThrows 'missing boot files throw'     { Get-OscdimgBootArgument -ImageRoot 'X:\definitely\missing' }
-Check 'oscdimg lookup returns a source'    ((Find-Oscdimg).Source -in 'adk', 'bundled', 'path', 'download')
+Check 'oscdimg lookup returns a source'    ((Find-Oscdimg).Source -in 'adk', 'bundled', 'path', 'cached', 'download')
 Check 'iso ok'                             (Test-IsoResult -ExitCode 0 -IsoExists $true -IsoBytes 500MB -MinBytes 300MB)
 Check 'iso too small'                      (-not (Test-IsoResult -ExitCode 0 -IsoExists $true -IsoBytes 1MB -MinBytes 300MB))
 Check 'iso bad exit'                       (-not (Test-IsoResult -ExitCode 1 -IsoExists $true -IsoBytes 500MB))
@@ -796,20 +880,79 @@ Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableName
 Remove-Variable -Name T11Test -Scope Global
 
 #======================================================================
+Section 'Early Oscdimg readiness and atomic portable cache'
+$toolWork = Join-Path $repo ('logs\oscdimg-test-' + [guid]::NewGuid().ToString('N'))
+$toolPath = Join-Path $toolWork 'tools\oscdimg\2.56\oscdimg.exe'
+$global:T11Test = @{ ToolPath=$toolPath; Mode='success'; Downloads=0; Partial=''; BadCache=$false; Source='download'; HostArchitecture='' }
+$module = Get-Module tiny11utils
+& $module {
+    function script:Find-Oscdimg {
+        param($HostArchitecture)
+        $global:T11Test.HostArchitecture=$HostArchitecture
+        $source=$global:T11Test.Source
+        if ($source -eq 'download' -and (Test-Path -LiteralPath $global:T11Test.ToolPath)) { $source='cached' }
+        [pscustomobject]@{ Source=$source; Path=$global:T11Test.ToolPath }
+    }
+    function script:Invoke-WebRequest {
+        param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction)
+        $global:T11Test.Downloads++; $global:T11Test.Partial=$OutFile
+        [IO.File]::WriteAllText($OutFile,'download fixture')
+        if ($global:T11Test.Mode -eq 'offline') { throw 'Network unavailable.' }
+    }
+    function script:Get-Sha256 {
+        param($Path)
+        if ($global:T11Test.Mode -eq 'bad-hash' -or ($global:T11Test.BadCache -and $Path -eq $global:T11Test.ToolPath)) { return 'INVALID' }
+        'F5129F313ED7EB46F2677CF522E64264A225F226307ED0DDB52BB14C46E7CFDD'
+    }
+} | Out-Null
+try {
+    $ready = Initialize-Oscdimg -HostArchitecture ARM64 6>$null
+    Check 'download is verified and published to the portable cache' ($ready -eq $toolPath -and (Test-Path -LiteralPath $toolPath))
+    Check 'download uses a separate partial file and removes it' ($global:T11Test.Partial -ne $toolPath -and -not (Test-Path -LiteralPath $global:T11Test.Partial))
+    Check 'tool lookup receives host architecture before downloading' ($global:T11Test.HostArchitecture -eq 'ARM64')
+    $global:T11Test.Mode='offline'
+    $ready = Initialize-Oscdimg 6>$null
+    Check 'verified cache works without internet' ($ready -eq $toolPath -and $global:T11Test.Downloads -eq 1)
+    Remove-Item -LiteralPath $toolPath -Force
+    CheckThrows 'network outage fails readiness before image work' { Initialize-Oscdimg 6>$null }
+    Check 'network failure publishes no tool and cleans partial data' (-not (Test-Path -LiteralPath $toolPath) -and -not (Test-Path -LiteralPath $global:T11Test.Partial))
+    $global:T11Test.Mode='bad-hash'
+    CheckThrows 'unexpected download checksum is rejected' { Initialize-Oscdimg 6>$null }
+    Check 'bad checksum leaves no executable or partial download' (-not (Test-Path -LiteralPath $toolPath) -and -not (Test-Path -LiteralPath $global:T11Test.Partial))
+    $global:T11Test.Mode='success'; $ready=Initialize-Oscdimg 6>$null
+    $beforeDownloads=$global:T11Test.Downloads; $global:T11Test.BadCache=$true; $global:T11Test.Mode='offline'
+    CheckThrows 'corrupt cache cannot be used offline' { Initialize-Oscdimg 6>$null }
+    Check 'corrupt cache is removed and never executed' (-not (Test-Path -LiteralPath $toolPath) -and $global:T11Test.Downloads -eq ($beforeDownloads+1))
+    $global:T11Test.BadCache=$false; $global:T11Test.Mode='success'; $ready=Initialize-Oscdimg 6>$null
+    $global:T11Test.BadCache=$true; $beforeDownloads=$global:T11Test.Downloads
+    $ready=Initialize-Oscdimg 6>$null
+    Check 'corrupt cache can be replaced by a verified fresh download' ($ready -eq $toolPath -and (Test-Path -LiteralPath $toolPath) -and $global:T11Test.Downloads -eq ($beforeDownloads+1))
+    $global:T11Test.BadCache=$false; $global:T11Test.Mode='offline'; $global:T11Test.Source='adk'; $beforeDownloads=$global:T11Test.Downloads
+    $ready=Initialize-Oscdimg 6>$null
+    Check 'installed ADK path needs no network or portable-cache download' ($ready -eq $toolPath -and $global:T11Test.Downloads -eq $beforeDownloads)
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+    $resolved=[IO.Path]::GetFullPath($toolWork)
+    if (-not $resolved.StartsWith([IO.Path]::GetFullPath((Join-Path $repo 'logs'))+'\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe tool-fixture cleanup.' }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+}
+
 Section 'ISO creation failure handling'
 $isoTestRoot = Join-Path ([IO.Path]::GetTempPath()) "tiny11-iso-stage-$PID"
 New-Item -ItemType Directory -Path $isoTestRoot -Force | Out-Null
 $module = Get-Module tiny11utils
 New-Item -ItemType Directory -Path (Join-Path $isoTestRoot 'sources') -Force | Out-Null
 [IO.File]::WriteAllText((Join-Path $isoTestRoot 'sources\install.esd'),'fixture')
-$global:T11Test = @{ ExitCode = 0; Create = $true; Stream = $false; BootArg = '' }
+$global:T11Test = @{ ExitCode = 0; Create = $true; Stream = $false; BootArg = ''; Initializations=0; NativeCalls=0; Tool='' }
 & $module {
     function script:Find-Oscdimg { [pscustomobject]@{ Source = 'bundled' } }
-    function script:Initialize-Oscdimg { 'fake-oscdimg.exe' }
+    function script:Initialize-Oscdimg { $global:T11Test.Initializations++; 'fake-oscdimg.exe' }
     function script:Get-OscdimgBootArgument { '-bootdata:2#p0,e,bBIOS#pEF,e,bUEFI' }
     function script:Get-Item { [pscustomobject]@{ Length = [long]301MB } }
     function script:Invoke-Native {
         param($FilePath, $ArgumentList, [switch]$StreamOutput)
+        $global:T11Test.NativeCalls++; $global:T11Test.Tool=$FilePath
         $global:T11Test.Stream = [bool]$StreamOutput
         $global:T11Test.BootArg = $ArgumentList[5]
         if ($global:T11Test.Create) { [IO.File]::WriteAllText($ArgumentList[-1], 'fake') }
@@ -824,6 +967,14 @@ try {
     [IO.File]::WriteAllText((Join-Path $isoTestRoot 'sources\install2.wim'),'leftover')
     CheckThrows 'ISO stage rejects leftover original/intermediate install images' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
     Remove-Item -LiteralPath (Join-Path $isoTestRoot 'sources\install2.wim') -Force
+    $preparedTool=Join-Path $isoTestRoot 'prepared-oscdimg.exe'; [IO.File]::WriteAllText($preparedTool,'fake executable')
+    $beforeInitializations=$global:T11Test.Initializations
+    $size=New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath -OscdimgPath $preparedTool 6>$null
+    Check 'ISO stage uses prepared tool without another lookup/download' ($size -eq 301MB -and $global:T11Test.Tool -eq $preparedTool -and $global:T11Test.Initializations -eq $beforeInitializations)
+    Check 'prepared portable tool survives successful mastering' (Test-Path -LiteralPath $preparedTool)
+    $beforeNativeCalls=$global:T11Test.NativeCalls
+    CheckThrows 'missing prepared tool does not trigger a late download' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath -OscdimgPath (Join-Path $isoTestRoot 'missing.exe') 6>$null }
+    Check 'missing prepared tool preserves output and skips tool initialization/execution' ((Test-Path -LiteralPath $isoPath) -and $global:T11Test.Initializations -eq $beforeInitializations -and $global:T11Test.NativeCalls -eq $beforeNativeCalls)
     $global:T11Test.ExitCode = 7
     CheckThrows 'ISO stage rejects failed tool even with output file' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
     $global:T11Test.ExitCode = 0; $global:T11Test.Create = $false
@@ -993,6 +1144,10 @@ foreach ($s in 'tiny11maker.ps1', 'tiny11Coremaker.ps1') {
     # 2>$null / 2>&1 on a native tool throws under EAP=Stop in PS 5.1: use Invoke-Native.
     Check "$s : no native stderr redirection" ($text -notmatch '(?m)^\s*&\s+\S+.*\s2>(\$null|&1)')
     Check "$s : no reg query before hives load" ($text -notmatch 'reg query')
+    $earlyToolCheck=$text.IndexOf('if (-not $DryRun) { $Script:oscdimgPath = Initialize-Oscdimg }')
+    Check "$s : real builds prepare Oscdimg before source mounting; dry run skips preparation" ($earlyToolCheck -ge 0 -and $earlyToolCheck -lt $text.IndexOf('Resolve-WindowsSource -IsoParameter'))
+    Check "$s : final ISO uses the prepared Oscdimg path" ($text -match 'New-Tiny11Iso[^\r\n]*-OscdimgPath \$Script:oscdimgPath')
+    Check "$s : source/workspace overlap is checked before work deletion and copying" ($text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -ge 0 -and $text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -lt $text.IndexOf('Remove-Item -Path $workRoot') -and $text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -lt $text.IndexOf('Invoke-Robocopy -Source'))
     Check "$s : verify mount folders before deleting source files" ($text.IndexOf('Remove-ScratchMountDirectory -ScratchRoot') -lt $text.IndexOf('Remove-Item -LiteralPath $workRoot'))
 }
 $manifest = Read-PowerShellDataFile (Join-Path $repo 'lib\tiny11utils.psd1')

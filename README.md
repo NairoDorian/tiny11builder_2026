@@ -22,7 +22,7 @@ Windows Update, Defender and the Store keep working unless you choose otherwise.
 
 This project is a fork of [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder).
 Its full history is kept on `main`, and the 2026 edition follows as regular commits on top.
-It also merges the best work of 15 community forks (see [Credits](#history-and-credits)).
+It selectively adapts fixes from 20 community projects (see [Credits](#history-and-credits) and the [branch comparison](docs/REFERENCE_REVIEW.md)).
 
 > [!IMPORTANT]
 > **The builder never changes the PC it runs on.** It works on a copy of the ISO:
@@ -95,8 +95,8 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
   the Windows PowerShell compatibility session automatically; nothing to configure.
 - About **25 GB free** on an **NTFS** drive: 1.5 × the image size, at least 20 GB. The GUI
   shows the free space and warns before you start.
-- `oscdimg.exe` is taken from the Windows ADK if installed. Otherwise it is downloaded once
-  from Microsoft's symbol server and verified against a pinned SHA-256.
+- `oscdimg.exe` is taken from the Windows ADK if installed. Otherwise it is downloaded before image work and retained in
+  `tools\oscdimg\2.56`, from Microsoft's symbol server and verified against a pinned SHA-256.
 
 ---
 
@@ -358,7 +358,7 @@ repos/                    Reference forks (git-ignored, for study only)
 
 ```powershell
 .\scripts\parse-check.ps1         # every file parses, every command resolves
-.\scripts\test-core-helpers.ps1   # ~1,750 checks, no admin rights and no ISO needed
+.\scripts\test-core-helpers.ps1   # ~1,900 checks, no admin rights and no ISO needed
 .\scripts\update-generated.ps1    # docs, reference answer files, manifests (-Check fails if stale)
 .\scripts\linter.ps1              # PSScriptAnalyzer, high-signal rules
 .\scripts\update-screenshots.ps1  # re-render docs\gui-*.png (window-only rendering)
@@ -374,7 +374,7 @@ The tests cover:
 - the GUI logic, the build launcher, and the whole window driven end to end with a fake
   builder that never touches the system.
 
-CI runs all of this on Windows PowerShell 5.1. A real ISO build needs admin rights and a
+CI checks both Windows PowerShell 5.1 and PowerShell 7. A real ISO build needs admin rights and a
 Windows ISO: test those changes in a VM (dry run first) and mention the build you used in the
 pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
@@ -386,8 +386,9 @@ pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELO
 (100 commits), followed by the 2026 edition as regular commits, so every change can be traced
 back to the original with `git log` / `git blame`.
 
-Ideas and fixes were studied in these projects and ported (they are cloned under `repos/` for
-reference):
+Ideas and fixes were studied in these projects and selectively adapted (code is downloaded under `repos/`).
+The [tracked reference list](data/reference-repos.json), [refresh script](scripts/sync-reference-repos.ps1) and
+[comparison report](docs/REFERENCE_REVIEW.md) record all 21 checkouts, exact branches and revisions:
 
 | Project | Ideas used |
 |---|---|
@@ -406,6 +407,12 @@ reference):
 | [prismatecas-ui/tiny11builder](https://github.com/prismatecas-ui/tiny11builder) | GUI option ideas, installed-apps inventory |
 | [bedlaj/tiny11builder](https://github.com/bedlaj/tiny11builder) | ADK lookup through the registry |
 | [AhmedLolyProductions/Loly11](https://github.com/AhmedLolyProductions/Loly11) | Package-list entries |
+| [u0reo/tiny11builder, feature/25h2-patch](https://github.com/u0reo/tiny11builder/tree/feature/25h2-patch) | Cloud-search policy; broader removals/raw XML repair reviewed selectively |
+| [luyingwei80/tiny11builder, Tony-patch-multi](https://github.com/luyingwei80/tiny11builder/tree/Tony-patch-multi) | Multiple-edition deployment reference; retain our single-edition default |
+| [pi0n00r/tiny11builder, deployment/2026-26h2](https://github.com/pi0n00r/tiny11builder/tree/deployment/2026-26h2) | Offline default control-set selection and source/workspace separation |
+| [391546581/tiny11builder](https://github.com/391546581/tiny11builder/commits/main/) | CI workflows studied; original builder code unchanged |
+| [icis-org/tiny11builder](https://github.com/icis-org/tiny11builder/commits/main/) | Build workflow studied; original builder code unchanged |
+| [lexp-hub/tiny11builder.sh](https://github.com/lexp-hub/tiny11builder.sh) | Linux/macOS port studied; file-only boot-update idea already covered |
 
 ## License
 

@@ -141,3 +141,38 @@ The preserved checkpoint and old scratch folder were moved into C:\.temp\preserv
 For the detailed investigation, controlled hive-loading tests, related upstream reports and evidence limits, see [BUILD_BUG_REPORT.md](BUILD_BUG_REPORT.md). The user accepts approximately 5-6 GB if correctness is verified; do not chase a historical size by changing the patch feature set.
 
 Fresh diagnostic fast build completed cleanly in 575.8 s (8,382,115,840-byte ISO); independent final ISO inspection verified all 29 removed app families absent, all four kept utilities present, targeted Edge/OneDrive paths absent, three DWORD repairs, image integrity and edition/language metadata. No VM install test. User's requested benchmark comparison is now two fresh builds: none/skip-cleanup versus maximum/normal-cleanup. None started 18:54:07. Code/preset hashes are saved per run; keep builder code unchanged between these two measurements.
+
+## Reference audit and dependency readiness - 2026-10-05
+
+- Downloaded the six user-requested branches and refreshed every existing
+  reference: 21 checkouts total, original plus 20 community projects. All 15
+  pre-existing heads remain current. Keep downloaded source under ignored
+  repos/; tracked inventory/sync/audit is in data/reference-repos.json,
+  scripts/sync-reference-repos.ps1 and docs/REFERENCE_REVIEW.md.
+- Do not execute reference scripts or copy changes blindly. Safely adapted
+  offline Select\Default control-set routing and source/work-tree separation
+  from the deployment reference, plus documented cloud search policy. The
+  advertising-ID machine policy was already present. Existing app/edition/
+  architecture choices and final maximum compression stay intact.
+- PR #604 is still open. Both makers now prepare Oscdimg before image work;
+  portable download is pinned, atomic, verified on reuse and retained. This is
+  a tiny tool cache, never previous patched-image reuse or a first-run speed
+  claim. DryRun remains download-free. A disposable fresh Microsoft download
+  passed SHA/native help/reinitialization and was cleaned.
+- No new complete Windows ISO or VM install for this audit. Previous fresh
+  benchmark reports are historical and predate these edits. New verification
+  summary is saved under docs/verification/2026-10-05.
+- Explicit user boundary remains: never edit running Windows system files,
+  live registry/settings, Defender, scheduled tasks or CPU priority. Project
+  and offline ISO/image files and normal temporary owned offline attachments
+  are authorized. No overlapping builds, reboot requirement or prior patched
+  data reuse. This source audit/test work did not mount/patch an actual ISO.
+
+Final checks for this audit: PowerShell 7 1,920 core checks and PowerShell 5.1
+1,918 core checks, all passed; 129 real WIM/ESD export checks and 23 media/
+progress checks per shell passed. Parse/command resolution in both shells,
+generated-file freshness, PSScriptAnalyzer and whitespace checks passed.
+All 21 reference checkouts are clean and match the saved heads. Diagnostic
+fixtures/this turn's raw logs were cleaned after saving compact evidence.
+Workspace was about 75.6 MB including roughly 52.7 MB of downloaded reference
+source/Git histories before final commit. References remain intentionally.

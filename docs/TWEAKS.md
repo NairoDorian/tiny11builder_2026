@@ -210,12 +210,13 @@ Services (start type: 2 automatic, 3 manual, 4 disabled; skipped if absent):
 
 ## Search
 
-Start/taskbar search stays local: no Bing, web results, search highlights or Cortana.
+Start/taskbar search stays local: no Bing, cloud/web results, search highlights or Cortana.
 
 - **When:** `DisableAds`
 
 | Key | Value | Type | Data |
 |---|---|---|---|
+| `HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search` | `AllowCloudSearch` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search` | `AllowCortana` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search` | `ConnectedSearchUseWeb` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search` | `DisableWebSearch` | REG_DWORD | `1` |

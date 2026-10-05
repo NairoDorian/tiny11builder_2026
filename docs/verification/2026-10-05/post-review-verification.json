@@ -1,0 +1,35 @@
+{
+  "Checked": "2026-10-05T02:00:29.0953532+02:00",
+  "Checks": {
+    "export-ps5": "RESULT: 129 real export checks passed.",
+    "export-ps7": "RESULT: 129 real export checks passed.",
+    "core-ps7": "RESULT: 1920 passed, 0 failed",
+    "media-ps7": "RESULT: 23 media/progress checks passed.",
+    "media-ps5": "RESULT: 23 media/progress checks passed.",
+    "core-ps5": "RESULT: 1918 passed, 0 failed"
+  },
+  "Versions": {
+    "PowerShell7": "7.6.5",
+    "PowerShell51": "5.1.26100.9549"
+  },
+  "ParserAndCommandResolution": "Passed in PowerShell 5.1 and 7",
+  "GeneratedFiles": "Passed",
+  "PSScriptAnalyzer": "Passed",
+  "GitWhitespace": "Passed",
+  "ReferenceCount": 21,
+  "ReferencesCleanAndAudited": true,
+  "LiveOscdimgDownload": "Fresh Microsoft download, SHA-256 match, native help recognized; disposable fixture removed",
+  "FullWindowsIsoBuild": false,
+  "VmInstallation": false,
+  "LiveWindowsChanged": false,
+  "SourceHashes": {
+    "data\\tweaks.psd1": "E22EC762E61AE7C2C6529BA05AE5D03898AAC6D68161BF0D330EC13DF66ADF77",
+    "lib\\tiny11utils.psm1": "D57668C3A2F3D50201CB43AE566EBEF0285C60197FF2647790F558C9E48E5E5A",
+    "tiny11Coremaker.ps1": "ABDE7ADD46AFBD0C3A86703D3CEBB85606B1C778FA5DF01C4CBD16D6300ACAC1",
+    "tiny11maker.ps1": "561F9EF6677A1604FDB41A0A93C81B11178A4AFEBEF5DB81BA3E9BC17F05B26D",
+    "lib\\tiny11utils.psd1": "58B52CE6766F77A3BB3192E43FB06624C60C3B594E991E1F2255DBC077ADCF4F",
+    "scripts\\sync-reference-repos.ps1": "DB697E6FD5ADD0054708A75F07D429BF74EAB4C88A468E980F31246D5B17F441",
+    "scripts\\test-core-helpers.ps1": "B18BF34298F48C6CDAF47387ADB5F1F076E73544931E68CCB21C693073FA74F5"
+  },
+  "Scope": "Regression tests, small fresh file-only WIM/ESD fixtures, source-only fork refresh/review and disposable Microsoft tool download. Historical full-build benchmarks are not a build of this revision."
+}

@@ -28,7 +28,8 @@
     Hives: zSOFTWARE / zSYSTEM = HKLM\SOFTWARE / HKLM\SYSTEM of the image,
     zNTUSER = the Default user profile (every new account inherits it),
     zDEFAULT = the .DEFAULT profile used by the logon screen and services.
-    Offline hives have no CurrentControlSet - always use ControlSet001.
+    Offline hives have no CurrentControlSet. Use ControlSet001 as a template;
+    the registry helpers resolve it through the image SYSTEM\Select\Default.
 #>
 @{
     Groups = @(
@@ -182,9 +183,10 @@
         }
         @{
             Id    = 'Search'
-            Title = 'Start/taskbar search stays local: no Bing, web results, search highlights or Cortana'
+            Title = 'Start/taskbar search stays local: no Bing, cloud/web results, search highlights or Cortana'
             When  = 'DisableAds'
             Set   = @(
+                'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search|AllowCloudSearch|REG_DWORD|0'
                 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search|AllowCortana|REG_DWORD|0'
                 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search|ConnectedSearchUseWeb|REG_DWORD|0'
                 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search|DisableWebSearch|REG_DWORD|1'

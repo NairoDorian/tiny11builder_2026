@@ -213,6 +213,8 @@ function Write-BuildProgress {
 $Script:LoadedRegHives = [System.Collections.Generic.List[string]]::new()
 $Script:OfflineHiveFiles = @{}
 $Script:PendingOfflineWrites = @{}
+# Catalog ControlSet001 entries follow the image's next-boot default control set.
+$Script:OfflineControlSetName = 'ControlSet001'
 
 function Invoke-RegLoad {
     param(
@@ -227,6 +229,7 @@ function Invoke-RegLoad {
     if (-not $Script:LoadedRegHives.Contains($HiveName)) {
         $Script:LoadedRegHives.Add($HiveName)
     }
+    if ($HiveName -eq 'zSYSTEM') { $Script:OfflineControlSetName = Get-OfflineDefaultControlSetName }
 }
 
 function Invoke-RegUnload {
@@ -256,7 +259,29 @@ function Invoke-RegUnload {
         Write-Host "Verified deferred image registry writes: $HiveName"
     }
     [void]$Script:OfflineHiveFiles.Remove($HiveName)
+    if ($HiveName -eq 'zSYSTEM') { $Script:OfflineControlSetName = 'ControlSet001' }
     Write-Output "Unloaded registry hive: HKLM\$HiveName"
+}
+
+function Get-OfflineDefaultControlSetName {
+    # Select\Default controls the next boot; Current describes the captured boot.
+    $selection = Get-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\zSYSTEM\Select' -Name 'Default' -ErrorAction Stop
+    $number = 0
+    if (-not [int]::TryParse([string]$selection.Default, [ref]$number) -or $number -lt 1 -or $number -gt 999) {
+        throw 'Offline SYSTEM Select\Default is missing or invalid; refusing to guess a control set.'
+    }
+    $name = 'ControlSet{0:D3}' -f $number
+    if (-not (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\zSYSTEM\$name")) {
+        throw "Offline SYSTEM Select\Default points to missing $name."
+    }
+    return $name
+}
+
+function Resolve-OfflineControlSetPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    # Only the offline catalog template is translated. Explicit other sets stay literal.
+    $normalized = $Path -replace '^HKEY_LOCAL_MACHINE\\', 'HKLM\'
+    return ($normalized -replace '^HKLM\\zSYSTEM\\ControlSet001(?=\\|$)', "HKLM\zSYSTEM\$Script:OfflineControlSetName")
 }
 
 function Mount-OfflineHives {
@@ -412,6 +437,7 @@ function Set-RegistryValue {
         throw "Invalid registry value type '$type' for $path\$name."
     }
     Assert-OfflineHiveLoaded -Path $path
+    $path = Resolve-OfflineControlSetPath -Path $path
     $regArgs = @('add', $path, '/f', '/t', $type, '/d', $value)
     if ($name) { $regArgs += @('/v', $name) } else { $regArgs += '/ve' }
     $nativeResult = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs -TimeoutSeconds 30 -PassThru
@@ -437,6 +463,7 @@ function Remove-RegistryValue {
         throw "Refusing to delete '$path': only offline hives (HKLM\z*) may be modified."
     }
     Assert-OfflineHiveLoaded -Path $path
+    $path = Resolve-OfflineControlSetPath -Path $path
     $regArgs = @('delete', $path, '/f')
     if ($Name) { $regArgs += @('/v', $Name) }
     $nativeResult = Invoke-Native -FilePath 'reg.exe' -ArgumentList $regArgs -TimeoutSeconds 30 -PassThru
@@ -1125,6 +1152,19 @@ function Mount-IsoAndGetDriveLetter {
     }
 }
 
+function Assert-SourceWorkspaceSeparation {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceRoot,
+        [Parameter(Mandatory = $true)][string]$WorkRoot
+    )
+    # Reject recursive copies and accidental source deletion before touching the work tree.
+    $source = [IO.Path]::GetFullPath($SourceRoot.TrimEnd('\', '/') + '\').TrimEnd('\') + '\'
+    $work = [IO.Path]::GetFullPath($WorkRoot.TrimEnd('\', '/') + '\').TrimEnd('\') + '\'
+    if ($source.StartsWith($work, [StringComparison]::OrdinalIgnoreCase) -or $work.StartsWith($source, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Source '$SourceRoot' and build workspace '$WorkRoot' overlap. Choose a separate workspace."
+    }
+}
+
 function Resolve-WindowsSource {
     # Turns -ISO (drive letter, .iso path, or nothing = prompt) into
     # @{ DriveLetter = 'E:'; IsoPath = <path or $null>; MountedByScript = <bool> }.
@@ -1495,7 +1535,7 @@ function Find-Oscdimg {
     # Returns @{ Path; Source } for the best available oscdimg.exe without
     # downloading anything: installed ADK (located through the KitsRoot10
     # registry value, so non-default install folders work), then a copy next
-    # to the scripts, then anything on PATH. Source = 'download' if none.
+    # to the scripts, then anything on PATH, then the verified portable cache.
     param([string]$HostArchitecture = $env:PROCESSOR_ARCHITECTURE)
     $adkArch = Resolve-Architecture -HostArchitecture $HostArchitecture
     $roots = @()
@@ -1517,42 +1557,52 @@ function Find-Oscdimg {
     if (Test-Path -LiteralPath $local) { return [pscustomobject]@{ Path = $local; Source = 'bundled' } }
     $onPath = Get-Command 'oscdimg.exe' -ErrorAction SilentlyContinue
     if ($onPath) { return [pscustomobject]@{ Path = $onPath.Source; Source = 'path' } }
-    return [pscustomobject]@{ Path = $local; Source = 'download' }
+    $cached = Join-Path $repoRoot 'tools\oscdimg\2.56\oscdimg.exe'
+    if (Test-Path -LiteralPath $cached -PathType Leaf) { return [pscustomobject]@{ Path = $cached; Source = 'cached' } }
+    return [pscustomobject]@{ Path = $cached; Source = 'download' }
 }
 
 function Initialize-Oscdimg {
-    # Finds oscdimg.exe or downloads Microsoft's copy from the public symbol
-    # server. That copy carries no embedded Authenticode signature, but the URL
-    # is content-addressed (timestamp + size), so the file is pinned by SHA-256
-    # and rejected if it ever differs. Returns the path; sets
-    # $Script:OscdimgDownloaded when fetched.
+    # PR #604: prepare before image work and retain the tiny portable download.
+    # Partial downloads are never published as usable tools. The pinned cache
+    # is verified on reuse; installed/user-provided tools keep their precedence.
     param([string]$HostArchitecture = $env:PROCESSOR_ARCHITECTURE)
     $expectedSha256 = 'F5129F313ED7EB46F2677CF522E64264A225F226307ED0DDB52BB14C46E7CFDD'  # oscdimg 2.56, 143 360 bytes
-
     $found = Find-Oscdimg -HostArchitecture $HostArchitecture
+    if ($found.Source -eq 'cached') {
+        if ((Get-Sha256 -Path $found.Path) -eq $expectedSha256) {
+            Write-Host "Using verified portable oscdimg.exe: $($found.Path)"
+            return $found.Path
+        }
+        Write-Warning 'Portable oscdimg.exe failed its checksum; replacing it before image work.'
+        Remove-Item -LiteralPath $found.Path -Force -ErrorAction Stop
+        $found.Source = 'download'
+    }
     if ($found.Source -ne 'download') {
         Write-Host "Using oscdimg.exe ($($found.Source)): $($found.Path)"
         return $found.Path
     }
-
     $url = 'https://msdl.microsoft.com/download/symbols/oscdimg.exe/3D44737265000/oscdimg.exe'
-    Write-Host "Windows ADK not found. Downloading oscdimg.exe from the Microsoft symbol server..."
+    $folder = Split-Path -Parent $found.Path
+    New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
+    $partial = Join-Path $folder ('.download-' + [guid]::NewGuid().ToString('N') + '.partial')
+    Write-Host 'Preparing oscdimg.exe from the Microsoft symbol server before image work...'
     $previous = [Net.ServicePointManager]::SecurityProtocol
-    $ProgressPreference = 'SilentlyContinue'   # the PS 5.1 progress bar makes downloads ~10x slower
+    $ProgressPreference = 'SilentlyContinue'
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $url -OutFile $found.Path -UseBasicParsing -ErrorAction Stop
+        [Net.ServicePointManager]::SecurityProtocol = $previous -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $url -OutFile $partial -UseBasicParsing -ErrorAction Stop
+        $actual = Get-Sha256 -Path $partial
+        if ($actual -ne $expectedSha256) {
+            throw "Downloaded oscdimg.exe has an unexpected SHA-256 ($actual). Refusing to start image work."
+        }
+        Move-Item -LiteralPath $partial -Destination $found.Path -ErrorAction Stop
+        Write-Host 'oscdimg.exe downloaded, checksum verified and retained for offline ISO creation.'
+        return $found.Path
     } finally {
         [Net.ServicePointManager]::SecurityProtocol = $previous
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force -ErrorAction Stop }
     }
-    $actual = Get-Sha256 -Path $found.Path
-    if ($actual -ne $expectedSha256) {
-        Remove-Item -LiteralPath $found.Path -Force -ErrorAction SilentlyContinue
-        throw "Downloaded oscdimg.exe has an unexpected SHA-256 ($actual). Install the Windows ADK Deployment Tools instead."
-    }
-    $Script:OscdimgDownloaded = $true
-    Write-Host "oscdimg.exe downloaded and verified (SHA-256 pinned)."
-    return $found.Path
 }
 
 #---------[ Unattended XML Generation ]---------#
@@ -2385,11 +2435,12 @@ function Set-OfflineServiceStart {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][ValidateRange(0, 4)][int]$Start
     )
-    if (-not (Test-Path "Registry::HKEY_LOCAL_MACHINE\zSYSTEM\ControlSet001\Services\$Name")) {
+    $servicePath = Resolve-OfflineControlSetPath -Path "HKLM\zSYSTEM\ControlSet001\Services\$Name"
+    if (-not (Test-Path -LiteralPath ($servicePath -replace '^HKLM\\', 'Registry::HKEY_LOCAL_MACHINE\'))) {
         Write-Verbose "Service $Name not present in image; skipped."
         return $false
     }
-    Set-RegistryValue "HKLM\zSYSTEM\ControlSet001\Services\$Name" 'Start' 'REG_DWORD' "$Start" | Out-Null
+    Set-RegistryValue $servicePath 'Start' 'REG_DWORD' "$Start" | Out-Null
     Write-Host "Service $Name start type -> $Start"
     return $true
 }
@@ -3047,13 +3098,14 @@ function Invoke-BootImageStage {
 
 function New-Tiny11Iso {
     # Runs oscdimg over the work folder and validates the result. Returns the
-    # ISO size in bytes. Deletes oscdimg.exe again if it had to be downloaded.
+    # ISO size in bytes. The verified portable tool remains available offline.
     param(
         [Parameter(Mandatory = $true)][string]$WorkRoot,
         [Parameter(Mandatory = $true)][string]$OutputIso,
         [string]$Architecture = 'amd64',
         [string]$Label = 'TINY11',
-        [switch]$NoPrompt
+        [switch]$NoPrompt,
+        [string]$OscdimgPath
     )
     # A failed cleanup must never package original/intermediate images as well
     # as the patched image (upstream oversized-media issue #318).
@@ -3062,19 +3114,19 @@ function New-Tiny11Iso {
     if ($installFiles.Count -ne 1 -or $installFiles[0].Name -notin 'install.wim', 'install.esd') {
         throw "ISO media must contain exactly one final install.wim or install.esd; found: $($installFiles.Name -join ', ')."
     }
-    $found = Find-Oscdimg
-    $oscdimg = Initialize-Oscdimg
+    if ($OscdimgPath) {
+        if (-not (Test-Path -LiteralPath $OscdimgPath -PathType Leaf)) {
+            throw 'The Oscdimg prepared during preflight is missing. Restore it before retrying; ISO creation will not attempt a late download.'
+        }
+        $oscdimg = $OscdimgPath
+    } else { $oscdimg = Initialize-Oscdimg }
     $bootArg = Get-OscdimgBootArgument -ImageRoot $WorkRoot -Architecture $Architecture -NoPrompt:$NoPrompt
     $Label = ($Label -replace '[^A-Za-z0-9_]', '')
     if ($Label.Length -gt 32) { $Label = $Label.Substring(0, 32) }
     if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
     Write-Host "Creating ISO $OutputIso ..."
     Write-BuildProgress -Stage iso -Percent 0 -Label 'Writing the ISO'
-    try {
-        $exitCode = Invoke-Native -FilePath $oscdimg -ArgumentList @('-m', '-o', '-u2', '-udfver102', "-l$Label", $bootArg, $WorkRoot, $OutputIso) -StreamOutput
-    } finally {
-        if ($found.Source -eq 'download') { Remove-Item -LiteralPath $oscdimg -Force -ErrorAction SilentlyContinue }
-    }
+    $exitCode = Invoke-Native -FilePath $oscdimg -ArgumentList @('-m', '-o', '-u2', '-udfver102', "-l$Label", $bootArg, $WorkRoot, $OutputIso) -StreamOutput
     $bytes = if (Test-Path -LiteralPath $OutputIso) { (Get-Item -LiteralPath $OutputIso).Length } else { [long]0 }
     if (-not (Test-IsoResult -ExitCode $exitCode -IsoExists ($bytes -gt 0) -IsoBytes $bytes -MinBytes 300MB)) {
         throw "ISO creation failed (oscdimg exit $exitCode, $bytes bytes)."

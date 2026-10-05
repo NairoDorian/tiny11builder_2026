@@ -328,12 +328,15 @@ Write-Host ""
 
 #---------[ Pre-flight ]---------#
 Test-Prerequisites
+# Prepare the ISO writer before attaching/copying/servicing media (PR #604).
+if (-not $DryRun) { $Script:oscdimgPath = Initialize-Oscdimg }
 if (-not $WorkDirectory) { Clear-StaleBuildState }
 if ($SCRATCH -or $WorkDirectory) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
 
 #---------[ Source & edition ]---------#
 $Script:source = Resolve-WindowsSource -IsoParameter $ISO
 $DriveLetter = $Script:source.DriveLetter
+Assert-SourceWorkspaceSeparation -SourceRoot "$DriveLetter\" -WorkRoot $workRoot
 $sourceImage = if (Test-Path "$DriveLetter\sources\install.wim") { "$DriveLetter\sources\install.wim" } else { "$DriveLetter\sources\install.esd" }
 $sourceImages = @(Get-WindowsImage -ImagePath $sourceImage)
 $imageIndex = Select-ImageIndex -Images $sourceImages -Index $Index -Edition $Edition -NonInteractive:$Yes
@@ -480,7 +483,7 @@ Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $build
 #---------[ boot.wim, answer file, ISO ]---------#
 $Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
 Write-UnattendFile -Xml $unattendXml -Path "$workRoot\autounattend.xml"
-$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture `
+$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture -OscdimgPath $Script:oscdimgPath `
     -Label "TINY11_$($info.DisplayVersion)_$($architecture.ToUpperInvariant())" -NoPrompt:$NoPrompt
 
 $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{

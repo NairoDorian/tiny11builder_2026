@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased - reference refresh and early dependency readiness
+
+- Download the six requested reference branches; fetch all 15 existing
+  checkouts. Track the 21-project inventory, source-only fast-forward refresh
+  helper, exact revisions and detailed fork/original comparison.
+- Adapt PR #604 in both makers: obtain Oscdimg before source/image work,
+  retain the small checksum-pinned portable tool, verify cache integrity,
+  publish downloads atomically, and use the prepared path for final mastering.
+  Dry runs do not download; first-use image optimizations remain unchanged.
+- Read offline SYSTEM Select\Default for catalog registry/service writes and
+  deletes; refuse invalid/missing selections rather than silently changing the
+  wrong control set. Reset state after unload and preserve cleanup tracking.
+- Reject overlapping source/work trees before destructive workspace cleanup
+  or recursive copying. Add documented cloud-search blocking under the
+  existing optional Search group; Advertising ID protection already existed.
+- Preserve single-edition processing, app choices and maximum compression.
+  No unverified NVMe overrides, extra framework removals, CI host/RDP changes,
+  raw XML rewrites, prior patched-image reuse or Linux recapture were imported.
+
+
 ## Unreleased — upstream PR adaptations and measured builds
 
 - Adapt upstream #623: separate driver-enabled Setup mount, bounded native
