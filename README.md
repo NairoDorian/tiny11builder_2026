@@ -7,36 +7,43 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Turn Microsoft's official Windows 11 ISO into a small, clean, private one**, with a
-graphical builder that exposes every option, or with one command line.
+graphical builder for the common options, or detailed command-line control.
 
 ![The builder window after a finished build](docs/gui-build-done.png)
 
-The ISOs it produces:
+With the built-in Default preset, it requests these changes to the resulting installation:
 
-- have no bloat apps, Edge, OneDrive, Copilot, Recall, Widgets, ads or suggestions;
+- remove planned bloat apps, Edge and OneDrive, and disable targeted AI/Widgets/advertising policies;
 - send minimal telemetry;
 - install without a Microsoft account or a network connection;
 - skip the TPM / Secure Boot / CPU / RAM checks.
 
-Windows Update, Defender and the Store keep working unless you choose otherwise.
+Default retains the Update, Defender and Store components; effective policy/runtime behavior depends on Windows edition/version and target testing.
 
 This project is a fork of [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder).
 Its full history is kept on `main`, and the 2026 edition follows as regular commits on top.
 It selectively adapts fixes from 20 community projects (see [Credits](#history-and-credits) and the [branch comparison](docs/REFERENCE_REVIEW.md)).
 
 > [!IMPORTANT]
-> **The builder never changes the PC it runs on.** It works on a copy of the ISO:
+> **The image patches target an offline Windows copy.** Real builds temporarily attach media/hives and write project/work/output files:
 > - It mounts the image in a work folder and edits the image's *offline* registry
 >   (temporarily loaded as `HKLM\z*`), then writes a new ISO.
 > - The registry helpers refuse any path outside those offline hives, and refuse to write
 >   at all unless an image hive is loaded.
 > - The only optional host-side change is **Faster build (Defender exclusion)**. It is off by
->   default and removed again when the build ends.
+>   default and cleanup is attempted when the build ends. It is **not authorized on this session's read-only host**; see [working notes](docs/WORKING_NOTES.md).
 
 ---
 
+## Current state and documentation
+
+Implementation reviewed at **`2ae045d`**, 2026-10-05; version label remains 2026.09. Start with the [documentation map](docs/README.md), [agent handoff](docs/WORKING_NOTES.md), [architecture/pipeline](docs/PROJECT_GUIDE.md) and [verification matrix](docs/VERIFICATION.md). Together they explain current behavior, constraints, history and unfinished validation from Markdown alone.
+
+The latest app checks passed in PowerShell 5.1 and 7 ([CI](https://github.com/NairoDorian/tiny11builder_2026/actions/runs/37245856681)). Two earlier fresh Standard x64 Pro builds measured **9m18s / 14.75 GB** uncompressed with cleanup skipped and **21m06s / 6.23 GB** maximum with normal cleanup. These were at `7aa45d5`, before later PR/reference safeguards. No latest-revision full ISO or VM installation is claimed. The historical final output is absent at its recorded path; source ISO and compact evidence remain. See [PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## Contents
 
+- [Current state and documentation](#current-state-and-documentation)
 - [Highlights](#highlights)
 - [Quick start](#quick-start)
 - [The GUI](#the-gui)
@@ -57,14 +64,14 @@ It selectively adapts fixes from 20 community projects (see [Credits](#history-a
 
 | | |
 |---|---|
-| **Every option in one window** | A 7-tab GUI with a live log and stage progress. The build runs inside it, and Cancel cleans up. |
-| **Current Windows** | 26H2 (build 26300), 26H1, 25H2, 24H2, 23H2 and 22H2 media, x64 and ARM64, `install.wim` or `install.esd` ISOs, any language. |
+| **Build options in one window** | A 7-tab GUI with a live log, step/overall progress and ETA. The build runs in a hidden child; Cancel attempts cleanup. |
+| **Current Windows** | Readers/planners cover newer Windows release labels, x64/ARM64, WIM/ESD and language metadata. Full-build evidence is 26300.9457 Pro x64/en-US; other combinations need validation. |
 | **AI and ads off** | Policies for Copilot, Recall, Click to Do, the Settings agent, generative AI in Paint, Notepad and Edge, Widgets, Bing search, Start recommendations and "finish setting up" nags. |
 | **No surprise reinstalls** | Removed apps are *deprovisioned*, and the Outlook, Dev Home, Teams and Edge re-installers are blocked. |
 | **Your first boot, your way** | A local admin account (or create one in OOBE), locale, time zone, computer name, a zero-touch install for VMs, a browser installed at first sign-in, and your own scripts. |
 | **Transparent** | Every registry value is listed in [docs/TWEAKS.md](docs/TWEAKS.md), every app in [docs/APPS.md](docs/APPS.md). Each ISO gets a `.json` manifest and a `.sha256` file. |
-| **Safe by construction** | Options are validated before any work starts. The registry cannot be written outside the image, and failures roll back. The downloaded `oscdimg.exe` is checksum-pinned. |
-| **Tested** | About 1,750 automated checks: tweak catalog, presets, answer files, removal planning, mocked build stages, and the GUI driven end to end. CI runs on Windows PowerShell 5.1. |
+| **Safe by construction** | Options are validated early. Offline registry guards protect live paths; failures stop and attempt cleanup, retaining files when dismount/state is unsafe. The downloaded `oscdimg.exe` is checksum-pinned. |
+| **Tested** | About 1,900 core checks plus real media/export fixtures; PowerShell 5.1 and 7 CI. See the dated verification matrix for exact counts and limits. |
 
 ---
 
@@ -73,7 +80,7 @@ It selectively adapts fixes from 20 community projects (see [Credits](#history-a
 1. Download a Windows 11 ISO from [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
 2. Double-click **`LAUNCH_TINY11.bat`** and press **1** (graphical builder). It asks for administrator rights.
 3. In **Source**, browse to the ISO and choose an edition, for example *Windows 11 Pro*. Its editions load automatically without mounting. For a typed path or existing drive, click **Load editions**.
-4. Optionally adjust the other tabs, then click **Build ISO**. A build takes about 20–40 minutes.
+4. Optionally adjust the other tabs, then click **Build ISO**. Time depends on source/options/storage/CPU; the measured maximum run took 21 minutes. See the performance report.
 5. Write the ISO to a USB stick with [Rufus](https://rufus.ie) (keep its default options) or
    attach it to a VM.
 
@@ -102,7 +109,7 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
 
 ## The GUI
 
-`tiny11gui.ps1` (option **1** of `LAUNCH_TINY11.bat`) exposes **every** builder option.
+`tiny11gui.ps1` (option **1** of `LAUNCH_TINY11.bat`) exposes the common build choices. `-WorkDirectory` is currently CLI-only. Compression engine/effort/thread settings can be stored in profiles and forwarded, but do not have dedicated visible controls.
 
 - It remembers your last settings in `gui-settings.json` (never the password).
 - **Save profile / Load profile** stores a whole configuration, so you can rebuild it for
@@ -137,7 +144,7 @@ temporary file that is deleted immediately, so a password never appears on a com
 |---|---|---|
 | For | PCs, laptops, long-lived VMs | disposable VMs, test rigs, CI |
 | Windows Update, language packs, features | keep working | **impossible** after the build |
-| Defender | on (off only with Minimal-VM) | removed |
+| Defender | retained by Default; configurable offline policies | removed/disabled by Core choices |
 | WinRE / "Reset this PC" | kept | removed |
 | WinSxS | cleaned (`/StartComponentCleanup /ResetBase`) | rebuilt with only the servicing stack |
 | Edge WebView2 | kept (removed only with Minimal-VM) | removed |
@@ -167,11 +174,12 @@ Default.
 
 ## Command line
 
-Both builders take the same options. Core ignores `-LowRam`, `-DisableDriverUpdates` and
-`-Custom`, and asks about .NET 3.5 when run interactively. Run `Get-Help .\tiny11maker.ps1 -Full`
+Both builders share the main options. `-LowRam`, `-DisableDriverUpdates` and
+`-Custom` are Standard-only CLI parameters; Core does not accept them. Core asks about .NET 3.5 when run interactively. Run `Get-Help .\tiny11maker.ps1 -Full`
 for the built-in help.
 
 ```powershell
+
 # Check everything first, build nothing
 .\tiny11maker.ps1 -ISO C:\iso\Win11.iso -Edition Pro -DryRun
 
@@ -192,7 +200,8 @@ for the built-in help.
 |---|---|
 | `-ISO <path\|letter>` | A Windows 11 `.iso` file, or the drive letter of a mounted ISO or USB stick |
 | `-Edition <name>` / `-Index <n>` | The edition to build, e.g. `Pro`, `Home`, `"Windows 11 Pro N"` (the exact name or its last word), or its index |
-| `-SCRATCH <letter>` | NTFS drive for the work folders (default: the scripts' drive) |
+| `-SCRATCH <letter>` | NTFS drive for the legacy root work folders (default: the scripts' drive) |
+| `-WorkDirectory <absolute folder>` | CLI-only isolated work root; new or empty local NTFS folder. Overrides work-root placement, but shared hive aliases still require one build at a time. |
 | `-OutputIso <path>` | Where to write the ISO |
 | `-Compress maximum\|balanced\|fast\|none` | `maximum` (default) writes `install.esd`, the smallest ISO; the others write `install.wim` |
 | `-CompressionEngine Auto\|Wimlib\|Dism` | Auto prefers the portable pinned wimlib compressor; DISM is available as a fallback |
@@ -248,7 +257,7 @@ upstream size/Setup regressions, safeguards and the limits of current verificati
 
 | Option | Meaning |
 |---|---|
-| `-DryRun` | Validate everything and print the plan; change nothing |
+| `-DryRun` | Validate and print the plan without image patch/export/mastering. Writes logs and may attach/release the source; legacy stale-state cleanup can occur without WorkDirectory. |
 | `-Yes` | Never prompt. Needs `-ISO`, and `-Edition`/`-Index` for multi-edition ISOs |
 | `-DefenderExclusion` | Temporarily exclude the work folders from this PC's Defender scan; removed at the end |
 
@@ -258,30 +267,17 @@ In PowerShell, lists work as `-Keep Paint,Camera`; from `cmd`, write `-Keep "Pai
 
 ## What a build does
 
-1. **Validates every option first** (preset, app names, tweak ids, user and computer name,
-   paths, free space), so a typo fails in seconds rather than after 30 minutes.
-2. Recovers from a crashed previous run: leftover registry hives and mount points.
-3. Copies the ISO without the multi-GB install image and **exports only the chosen edition**.
-   This also converts `install.esd` media.
-4. Mounts the image and removes:
-   - provisioned apps;
-   - Edge (plus WebView2 with Minimal-VM or Core) and OneDrive;
-   - legacy capabilities, and the handwriting and speech packs. OCR, Narrator voices and
-     spell-check stay.
-5. Loads the image registry and applies the **[tweak catalog](docs/TWEAKS.md)**: 28 groups,
-   170 values.
-   - It also marks the removed apps as deprovisioned.
-   - It removes 16 telemetry scheduled tasks, reading their IDs from the image itself, so this
-     works on every build.
-6. Writes the answer file, `SetupComplete.cmd` and `FirstLogon.cmd` into the image.
-7. Cleans the component store, commits, and exports `install.esd` (LZMS) or `install.wim`.
-8. Patches `boot.wim` so Windows Setup skips the hardware checks, and adds your drivers.
-9. Writes `autounattend.xml` and runs `oscdimg`. The ISO boots on BIOS and UEFI, or UEFI only
-   for ARM64. The build then checks the ISO and writes the manifest and SHA-256.
+1. Normalizes/validates options and loads the servicing prerequisites. A real build prepares the ISO writer early, before long image work; a dry run skips its download.
+2. Resolves the source, selects the actual edition and records source metadata. Source/work-tree overlap is rejected. Prefer a fresh isolated `-WorkDirectory` for manual runs; legacy root layout includes stale-state recovery and is not safe alongside another writer.
+3. Tests a disposable offline hive before copying/mounting, copies setup media excluding the original install image, and exports only the chosen source edition. Ordinary WIM resources can be reused without re-encoding; solid ESD becomes a mountable WIM.
+4. Mounts the image and performs planned app/capability/Edge/OneDrive changes and optional .NET/driver injection. Core also reduces component packages, WinRE and WinSxS.
+5. Loads owned offline hives, applies the [tweak catalog](docs/TWEAKS.md) and removes offline telemetry tasks. SYSTEM template paths follow the image's `Select\Default`; denied DWORDs receive verified file-only repair after unload.
+6. Stages generated/custom answer files and SetupComplete/FirstLogon hooks, applies normal component cleanup unless skipped, then commits/unmounts.
+7. Exports the final selected compression format once and validates actual source edition/language/product metadata. Only missing source-derived fields may be restored via supported wimlib operations; conflicts fail.
+8. Patches small Setup hive files without a boot mount where supported; driver/fallback servicing uses a separate boot mount. Writes the final answer file.
+9. Refuses duplicate/intermediate installation images, masters the ISO with the prepared Oscdimg path, hashes it and writes JSON/SHA sidecars. Releases owned attachments and cleans safe work folders.
 
-If anything fails, the build unloads the hives, discards the mounted image, ejects the ISO and
-removes any temporary exclusions, so the next run starts clean. From the GUI, **Cancel** does
-the same.
+Failure and GUI Cancel attempt cleanup. If dismount fails or mount state is unknown, image files are retained. Check the actual state before any replacement; cleanup is not guaranteed, separate folders are not a global concurrency lock, and counted warnings need inspection. See [PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md) for the complete mechanism and [BUILD_BUG_REPORT.md](docs/BUILD_BUG_REPORT.md) for unresolved failures.
 
 ---
 
@@ -318,11 +314,11 @@ answer files and the module manifests.
 
 | Symptom | Fix |
 |---|---|
-| "reg unload … failed" / a hive is still loaded | Close Registry Editor and any Explorer window on the work folder. The next run unloads leftover hives automatically. |
-| "Failed to commit/unmount" | Usually antivirus scanning the work folder: turn on the Defender exclusion. `dism /Cleanup-Mountpoints` clears stale mounts. |
-| The build is very slow | Put the work drive on an SSD and turn on the Defender exclusion; use a quick build for tests. Maximum compression is CPU intensive. The GUI shows both current-step progress and overall stage estimates. |
+| Hive unload / commit failure | Stop the owned writer and close handles into the offline work folder. Verify owned mounts/hives before retrying; preserve image files if dismount/state is unsafe. See the bug report. |
+| "Filename or extension is too long" during hive load | A 33-character path still failed in controlled tests; CIM launching succeeded, but the Windows cause is unresolved. The early hive preflight detects it. See the launch-context investigation; do not change host security settings. |
+| Slow build / apparently stalled percentage | Consult stage logs and PERFORMANCE.md. Maximum LZMS dominated the measured run; overall percentage/ETA is approximate. Do not overlap DISM writers or change this session's host settings. |
 | "Load editions" fails | The ISO must contain `sources\install.wim` or `install.esd`. Editions are read through the bundled UDF/ISO9660 reader, without elevation, mounting, downloads or cached guesses. Malformed, encrypted or split images need suitable source media. |
-| Setup asks for a product key | Choose the edition you own. Setup activates with the key stored in your firmware. |
+| Setup rejects product-key/edition validation | Verify the chosen edition, source-derived final XML and any custom answer file. A successful build alone cannot rule out the upstream metadata failure. Firmware keys/activation depend on the target and matching edition. |
 | Setup cannot see the disk (Intel VMD/RST laptops) | Point the drivers folder at the extracted Intel RST "F6" drivers. |
 | The ISO does not boot on an old BIOS PC | x64 ISOs boot on BIOS, but zero-touch partitions for UEFI/GPT. Install interactively instead. |
 | Anything else | Run a dry run, then read the log in `logs\`. It records every value written. |
@@ -345,9 +341,13 @@ presets/*.json            Build presets
 lib/tiny11utils.psm1      Build library: DISM/registry helpers, catalog engine, answer-file
                           generator, removal planning, shared build stages, ISO creation
 lib/tiny11gui.psm1        Windows Forms window, state -> builder arguments, build runner
+lib/tiny11media.psm1      Read-only bundled optical/WIM metadata reader
+lib/OfflineRegistry.cs   File-only protected image-hive DWORD repair
+data/reference-repos.json Exact reference URLs and branches
 payload/                  Your post-install scripts (-Payload)
 Browsers/                 Browser installers run at the first sign-in (-Browser)
-docs/                     TWEAKS.md and APPS.md (generated), GUI screenshots
+docs/                     Handoff/architecture/verification and detailed reports; generated catalogs
+docs/verification/        Compact dated measurement/audit evidence
 scripts/                  Tests, parse check, linter, generators, test fixtures
 repos/                    Reference forks (git-ignored, for study only)
 ```
@@ -359,6 +359,8 @@ repos/                    Reference forks (git-ignored, for study only)
 ```powershell
 .\scripts\parse-check.ps1         # every file parses, every command resolves
 .\scripts\test-core-helpers.ps1   # ~1,900 checks, no admin rights and no ISO needed
+.\scripts\test-media-progress.ps1 # real ISO metadata/progress fixtures
+.\scripts\test-export-pipeline.ps1 # real small WIM/ESD fixtures
 .\scripts\update-generated.ps1    # docs, reference answer files, manifests (-Check fails if stale)
 .\scripts\linter.ps1              # PSScriptAnalyzer, high-signal rules
 .\scripts\update-screenshots.ps1  # re-render docs\gui-*.png (window-only rendering)

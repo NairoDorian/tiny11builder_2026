@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased - complete Markdown handoff and state reconciliation (2026-10-05)
+
+- Replace append-only working notes with current permissions, implementation,
+  verified revisions/results, artifact availability and concrete open work.
+- Add documentation index, complete architecture/pipeline/GUI/dependency guide,
+  and verification matrix/run procedure so future agents can understand the
+  project from Markdown before reading implementation details.
+- Reconcile user/contributor/extension documentation with actual behavior:
+  WorkDirectory is CLI-only; advanced compressor values are profile state;
+  DryRun can write logs/attach source; cleanup is best-effort; legacy max means
+  balanced; payload staging is top-level and CMD/PS1 execute as separate groups.
+- Update generated APPS/TWEAKS through their generator, including control-set
+  routing/scope and a corrected uninterrupted preset table. No patch features,
+  preset values, answer XML, module manifests or visible GUI controls changed.
+- Date dependency/PR/reference claims, remove stale pending benchmark wording
+  and deleted-raw-log availability claims, and consolidate latest application
+  CI/tests separately from historical full builds and unresolved VM/launch gaps.
+
+October application improvements are unreleased commits. Existing version labels
+remain 2026.09 / 2026.9.0. Earlier entries below describe the code at their own
+revision/date; superseded cleanup/tool/GUI claims are not current guarantees.
+Use docs/WORKING_NOTES.md and docs/PROJECT_GUIDE.md for the current contract.
+
 ## Unreleased - reference refresh and early dependency readiness
 
 - Download the six requested reference branches; fetch all 15 existing
@@ -19,7 +42,6 @@
   No unverified NVMe overrides, extra framework removals, CI host/RDP changes,
   raw XML rewrites, prior patched-image reuse or Linux recapture were imported.
 
-
 ## Unreleased — upstream PR adaptations and measured builds
 
 - Adapt upstream #623: separate driver-enabled Setup mount, bounded native
@@ -33,6 +55,7 @@
 - Record two fresh Windows 26H2 builds: 9m18s / 14.75 GB uncompressed versus
   21m06s / 6.23 GB maximum, with independent saved-image verification. Preserve
   compact benchmark/cleanup evidence and keep generated media outside the repo.
+
 ## Unreleased - fresh-build safety and diagnostics
 
 - Add isolated `-WorkDirectory` support, preserving other build folders and
@@ -45,6 +68,7 @@
   deletion fallback; refuse deleting an image that remains mounted.
 - Document controlled hive-load tests, upstream compression/duplicate-image/
   cleanup/Setup reports and independent inspection of a fresh patched ISO.
+
 ## Unreleased - faster image preparation and clearer progress
 
 - Reuse compressed resources when exporting an edition from an ordinary WIM;
@@ -211,6 +235,7 @@ Read the older entries as a record of their time. Several features listed in the
   titles were swallowed as mnemonics; truncated labels.
 
 ---
+
 ## [2026.09] - 2026-09-23 - Round 4: correctness audit, shared build library, catalog-driven tweaks
 
 A full audit of the builders against all 15 reference forks (all re-pulled; the
@@ -351,6 +376,7 @@ Both builders were rebuilt on a tested shared library.
   and a Windows ISO. Everything below that level is covered by the test suite.
 
 ---
+
 ## [26.09.2026] - Ultimate Edition Initial Build
 
 ### Overview

@@ -1,6 +1,24 @@
 # Tiny11 build bugs: evidence, upstream reports and verification
 
-Recorded on 2026-10-04 for Windows 11 build 26300.9457 (26H2). This is a living investigation report. A passing export, a valid ISO filesystem and a successful Windows installation are different checks. Evidence below is labeled accordingly.
+Investigation recorded 2026-10-04 for Windows 11 build 26300.9457 (26H2); reconciled with application `2ae045d` on **2026-10-05**. This is a living investigation report. A passing export, a valid ISO filesystem and a successful Windows installation are different checks. Evidence below is labeled accordingly.
+
+## State of this investigation — 2026-10-05
+
+The two requested fresh none/maximum comparison runs **completed** at `7aa45d5`; no benchmark remains pending. Later #623/#628/#622/#604 and reference safeguards passed regression/real small-fixture checks, not a fresh complete latest-code ISO or VM installation. See [current handoff](WORKING_NOTES.md), [implementation guide](PROJECT_GUIDE.md) and [verification matrix](VERIFICATION.md).
+
+| Issue / observation | Implemented response | Remaining evidence limit |
+|---|---|---|
+| Hive load: filename/extension error | Early disposable probe, real mounted SOFTWARE guard; passing manual CIM launch demonstrated | Root Windows launch-context mechanism unknown; normal GUI is not automatically rerouted or proved repaired |
+| Three denied Widgets DWORDs | Owned-hive deferred file-only write/readback after unload, file security preserved | ACL cause not established; saved values proved, policy runtime not VM-tested |
+| TaskCache NUL / waiting native command | Strip terminator, reject NUL arguments, close stdin, registry timeout | Do not bypass wrapper/guards with new raw calls |
+| Native stderr / mixed return values | Ordinary concurrent progress streaming and clean numeric result paths | Nonzero exit/output absence still fails; logs alone cannot prove installability |
+| Protected SecHealthUI on new media | Retain on 26100+, separate offline Defender choices | Disabling Defender under tamper protection is not guaranteed |
+| Mount deletion/conflict | Separate driver boot mount, guarded/retried scratch cleanup, preserve files on unsafe state | Legacy global recovery/shared aliases still require one writer; Core WinSxS fallback is a separate code path |
+| Missing edition/language XML | Missing-only source-derived wimlib repair with integrity/readback; conflicts fail | Does not establish all Setup/activation/hardware behavior |
+| Late Oscdimg readiness / corrupt cache | Early prepared path, verified atomic download/retention | First download can still fail early; not a compression speedup |
+| SYSTEM Default differs / source-work overlap | Resolve selected next-boot control set; refuse overlapping copy/deletion trees | Mock/path tests passed; no complete Default=2 Windows installation |
+
+Historical raw logs/checkpoints/media mentioned below were deleted/are absent at the recorded output path. The authoritative retained evidence is compact JSON under `verification/2026-10-04` and `2026-10-05`. Current code, historical successful runs and unresolved causal questions are deliberately separated.
 
 ## Current conclusion
 
@@ -22,7 +40,7 @@ Only one servicing/build attempt may run at a time. Before a replacement attempt
 
 The first fresh maximum-compression attempt exported the selected edition and mounted it. `Assert-MountedImage` then tried to load that image's SOFTWARE file at `HKLM\zSOFTWARE`. The native `reg.exe load` returned exit 1 with the filename/extension error. The builder stopped before app removal and registry patching. No final ISO was created.
 
-The log is in `logs/manual-verification/fresh-20261004-181134-c4ac4ab7/build.log` (local raw log); the final [status](verification/2026-10-04/failed-build-status.json) records exit 1 and zero output bytes. Selected-edition export took 33.2 seconds; mounting took 186.5 seconds. The failed attempt took 553.7 seconds including discarding the mount and deleting work files. That total is a failed-attempt cost, not a completed-build benchmark.
+The original raw log was `logs/manual-verification/fresh-20261004-181134-c4ac4ab7/build.log` and was deleted during cleanup; the final [status](verification/2026-10-04/failed-build-status.json) records exit 1 and zero output bytes. Selected-edition export took 33.2 seconds; mounting took 186.5 seconds. The failed attempt took 553.7 seconds including discarding the mount and deleting work files. That total is a failed-attempt cost, not a completed-build benchmark.
 
 The original error text alone does not establish that the file path actually exceeded a Windows limit. `reg.exe` exposes a command exit code and message here; we did not capture an independent native `RegLoadKeyW` return value or stack trace. Microsoft documents the low-level API and its backup/restore privilege requirements in [RegLoadKeyW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regloadkeyw).
 
@@ -57,7 +75,7 @@ The exact process-context difference remains unresolved. It would require additi
 - Scratch deletion refuses a still-registered mount and validates its absolute target below the selected build root. There is no cross-shell deletion fallback.
 - Process priority is inherited. The user manages it.
 
-The fast measurement already running when the preflight was added loaded its module before this edit, so that run tests the passing launch and real image probe, not the newly added early preflight. The following fresh attempt will test the early guard.
+The fast measurement already running when the preflight was added loaded its module before this edit, so that run tests the passing launch and real image probe, not the newly added early preflight. The subsequent none/maximum comparison runs exercised the then-current guard and completed; later application edits still need their own full-run validation.
 
 ## 2. Earlier denied registry writes were a separate failure
 
@@ -65,7 +83,7 @@ The original supplied log had three denied Widgets/feeds DWORD writes: `AllowNew
 
 The targeted implementation records only denied DWORD writes for the tracked offline hive. After its normal unload flushes and releases the file, Windows Offreg opens the file in memory, applies those relative subkey/value entries, reads them back, saves a new hive and atomically replaces the original while preserving file security. Other registry errors still fail. Host hive files and paths outside the allowed offline aliases are rejected.
 
-The previously completed maximum-compressed ESD was independently extracted. All three values were confirmed as DWORD zero in the saved SOFTWARE/default-user files. This checks the resulting image data, beyond merely seeing a successful command in a log. Evidence is in `logs/manual-verification`; the relevant code is in [OfflineRegistry.cs](../lib/OfflineRegistry.cs) and [tiny11utils.psm1](../lib/tiny11utils.psm1).
+The previously completed maximum-compressed ESD was independently extracted. All three values were confirmed as DWORD zero in the saved SOFTWARE/default-user files. This checks the resulting image data, beyond merely seeing a successful command in a log. The original raw evidence under `logs/manual-verification` was deleted; compact saved-image/checkpoint results remain under `verification/2026-10-04`. The relevant code is in [OfflineRegistry.cs](../lib/OfflineRegistry.cs) and [tiny11utils.psm1](../lib/tiny11utils.psm1).
 
 ### Other original-log failures and misleading output
 
@@ -128,7 +146,7 @@ This rules out the particular missing-fields symptom for that inspected output. 
 - [Issue #625](https://github.com/ntdevlabs/tiny11builder/issues/625) reports a 12 GB Core image and includes an export suggestion. It is not a demonstrated reproduction of our hive-loading problem.
 - Upstream regular Tiny11 and Tiny11 Core have different removal/serviceability policies. A smaller Core or older image is not an equivalent baseline for this regular preset.
 
-The audit examined the upstream open/closed issue/PR inventory and targeted comments saved under `logs/upstream-audit` (local raw audit). This is the relevant set found, not a claim to have found every historical mention on GitHub or the web. Source statuses are a snapshot as of the inspection date. Public read-only queries were used; no upstream comments or messages were posted.
+The audit examined the upstream open/closed issue/PR inventory and targeted comments originally saved under `logs/upstream-audit`; that raw audit was deleted during cleanup. This is the relevant set found, not a claim to have found every historical mention on GitHub or the web. Source statuses are a snapshot as of the inspection date. Public read-only queries were used; no upstream comments or messages were posted.
 
 ## 8. Why earlier runs could take 20-40 minutes
 
@@ -156,7 +174,7 @@ The diagnostic fast-compression fresh run finished successfully: 575.8 seconds (
 
 The source Pro edition's reported uncompressed XML size is 26,770,709,765 bytes; the fast patched edition reports 23,110,349,644 bytes, about 3.66 GB less. These are image metadata totals, not installed physical disk-use measurements. The full original ISO has 11 editions sharing resources; the output has one. Comparing those compressed disc sizes alone cannot quantify app removal.
 
-The user now explicitly requests two complete fresh benchmark runs: **none + skipped cleanup** for the fastest uncompressed setting, and **maximum + normal cleanup** for the normal smallest-image setting. Both use the same original ISO, Pro index, preset and patch selections. New folders and code/preset hash snapshots exclude previous patched-data reuse. The total comparison includes cleanup's effect; it must not be described as a compression-only controlled comparison or as byte-identical outputs.
+The user requested, and both runs have now completed, two fresh benchmark configurations: **none + skipped cleanup** for the fastest uncompressed setting, and **maximum + normal cleanup** for the normal smallest-image setting. Both use the same original ISO, Pro index, preset and patch selections. New folders and code/preset hash snapshots exclude previous patched-data reuse. The total comparison includes cleanup's effect; it must not be described as a compression-only controlled comparison or as byte-identical outputs.
 
 The none run finished in 557.8 seconds (9 min 18 sec), with a 14,746,617,856-byte ISO and 13,865,993,139-byte uncompressed WIM. Its [saved-image inspection](verification/2026-10-04/none-inspection.json) passed all app/file/registry/integrity/metadata checks. The maximum run finished in 1265.9 seconds (21 min 6 sec), with a 6,229,929,984-byte ISO and 5,349,305,984-byte ESD; its [saved-image inspection](verification/2026-10-04/maximum-inspection.json) passed the same checks. Both recorded exit 0 with no build warnings. Maximum compression saves 57.8% of ISO bytes at an extra 11 min 48 sec. It used 12 threads and took 838.1 seconds (838.8 including stage overhead). Normal component cleanup took only 14.2 seconds in this sample.
 
@@ -176,3 +194,11 @@ The entire task-created `C:\.temp` folder, earlier checkpoint, fast/uncompressed
 No ISO has yet been booted/installed in a VM as part of this verification. That remains the limit on claims of installation success even when image/container/metadata checks pass.
 
 Shareable summaries and controlled-test results are committed in [verification/2026-10-04](verification/2026-10-04). Raw logs and intermediate files were intentionally deleted during cleanup; the historically retained ISO is now absent at its recorded path. Historical filesystem references describe the executed tests, and the saved JSON summaries provide the remaining evidence.
+
+## October 5 dependency and reference follow-up
+
+The #604 readiness change catches unavailable/corrupt fallback tools before source image work and retains only a small tool binary. Both builders pass the prepared path to mastering; disappearance fails without a late download. A fresh Microsoft download/hash/help check passed. This addresses a late-failure risk, not the unexplained `reg load` mechanism.
+
+The new pi0n00r-inspired `Select\Default` resolver prevents silently patching the wrong SYSTEM control set. The source/work guard rejects overlapping trees before workspace deletion/copy. The u0reo-inspired cloud-search addition is confined to the existing Search choice; machine Advertising ID protection already existed. These changes do not silently remove extra features or change the compression/default edition workflow.
+
+See [UPSTREAM_PR_REVIEW.md](UPSTREAM_PR_REVIEW.md) and [REFERENCE_REVIEW.md](REFERENCE_REVIEW.md) for exact heads and decisions. New app regression counts/CI are in [VERIFICATION.md](VERIFICATION.md). Those newer fixtures do not turn either historical ISO into a build of the newer code. No normal-launch root-cause trace, fresh latest-code Windows ISO or target VM install was performed by this documentation update.

@@ -1,178 +1,79 @@
-# User constraints and Windows 26H2 verification
+# Working notes and agent handoff
 
-Recorded on 2026-10-04.
+Updated **2026-10-05**. This is the current state, replacing the earlier append-only session log. Historical details remain in the linked reports. Read this file before diagnostics or builds; then read [PROJECT_GUIDE.md](PROJECT_GUIDE.md) for the implementation map and [the documentation index](README.md) for the rest.
 
-- The user's host has just been updated to Windows 11 26H2, matching the ISO's Windows version. The source ISO is `Windows11_Client_x64_en-us_26300_9457.iso`.
-- The running Windows installation is read-only: never edit its system files, live registry settings, security settings, or other host configuration, even temporarily. Project files, source/destination ISO files, extracted media and offline Windows images may be edited. Normal temporary ISO/image mounts and offline hive attachments used to service those images are authorized; they must be released afterward. Registry writes must target only the offline image, never live host keys.
-- The user manages CPU priority themselves. Do not change CPU priority or host settings. The later request explicitly authorizes optimizing the build pipeline and researching APIs online, while retaining maximum compression and minimum final size; measure speed/size tradeoffs rather than silently reducing compression.
-- Before restarting a build or diagnostic, stop its previous process tree and confirm it has exited. Never run overlapping attempts against the same image or hive.
-- Fix the remaining log errors and verify the result with a real command-line build. Do not claim that all errors are fixed based only on unit tests.
-- A reboot must not be the normal recovery procedure. Diagnose failures and make the scripts recover without requiring one where possible.
+## User authorization and non-negotiable constraints
 
-The earlier verification attempt reached a committed, unmounted install image at `C:\.temp\preserved-tiny11\tiny11\sources\install.wim`. Its recovery export was stopped on request. Three Widgets registry writes still failed, so that attempt is not a clean verified build. Registry ACL changes on a disposable source-hive copy did not resolve the denied writes; the observed key already permitted administrator access. Do not describe the cause as a proven ACL problem.
+| Area | Instruction |
+|---|---|
+| Running Windows | Read-only. Never edit its system files, live registry/settings, Defender configuration, scheduled tasks, installed toolchains, or CPU priority, even temporarily. |
+| Project / offline media | Project code/docs, source/destination ISO files, extracted media and offline Windows image files may be worked on. Preserve the original input unless an explicit request requires replacing it. |
+| Temporary attachments | Normal ISO/offline-image mounts and owned offline hive attachments are explicitly allowed for servicing. Writes target the offline image, never live host keys. Release attachments afterward and verify cleanup. |
+| Work location | The user explicitly authorized short offline-work/output paths under `C:\.temp`. It was subsequently cleaned and is currently absent. A future build may use a new isolated folder there; obey the tool's active filesystem permissions as well. |
+| Process lifecycle | Before replacing an attempt, stop its **own** process tree and confirm exit, writer/mount/hive state. Do not kill unrelated Windows servicing. Never overlap image/hive writers, even with different work folders: the `HKLM\z*` aliases are shared. |
+| Recovery | Rebooting is not the normal solution. Preserve native errors, diagnose the failing step, and retain image files if dismount fails or mount state is unknown. |
+| Performance | Optimize the **first build** from the original ISO. No previous patched image, saved checkpoint, application metadata cache or multi-run optimization. Do not promise cold OS filesystem caches; they were not reset in benchmarks. |
+| Output behavior | Preserve intended patch/app choices and maximum final compression by default. The user accepts roughly 5–6 GB when correct; do not remove extra features to force a historical 2–3 GB size. |
+| Evidence | A unit test, container integrity check, saved-image inspection and successful VM installation are different results. Never claim every original-log error or installation compatibility is proved by unit tests. |
+| Source sharing | Commit/push was explicitly authorized. Use the verified existing `main` / `upstream` repository; do not send messages or modify upstream PRs merely because they are references. |
 
-Earlier tests created temporary scheduled tasks and loaded disposable offline hives before the host read-only restriction was stated. Do not create host scheduled tasks or repeat host-setting diagnostics. Normal temporary attachments of offline image hives during an authorized ISO build are permitted, as clarified below. Remove only outstanding test artifacts created by this task if needed to restore the previous host state, and report that cleanup explicitly.
+The host boundary was clarified explicitly: editing mounted ISO/image files and their work is allowed; editing the Windows machine currently running is not. Earlier task-created scheduled-task diagnostics occurred **before** that restriction and were cleaned. Do not repeat them. The optional `-DefenderExclusion` feature exists in the product but is **not authorized for this session**. The user controls priority themselves.
 
-## Latest state: completed fresh builds, cleanup and PR adaptations
+## Current application and repository state
 
-- Two sequential fresh builds from the original ISO at commit `7aa45d5` passed:
-  none/skipped cleanup 557.8 s, 14,746,617,856 bytes; maximum/normal cleanup
-  1265.9 s, 6,229,929,984 bytes. Same preset/patch choices and code; no earlier
-  patched data reused. Independent saved-image checks passed for both; no VM
-  install/boot test. See PERFORMANCE.md and verification/2026-10-04.
-- The maximum ISO was recorded as retained outside the repository:
-  `C:\Users\Z\Downloads\PROJECTS\ISOs\tiny11-26300-maximum-20261004-190253.iso`.
-  SHA-256: `2b1cced1fe91288292b054416f9ce230168ba71eee1849290606b973c1f56808`.
-- Follow-up at 20:01 CEST: that recorded final ISO and sidecars are absent.
-  Source ISO still exists. User asked whether they moved/deleted it; cause is
-  not established. Do not promise a downloadable ISO from the historical path.
-- User explicitly requested deletion: `C:\.temp`, old checkpoint, other outputs,
-  repository artifacts/raw logs and task-created development caches are gone.
-  Only compact evidence, source code/dependencies and existing reference clones
-  remain (~72.5 MB). Do not rely on historical raw-log/checkpoint paths below.
-- Latest request: adapt upstream PRs 623, 628 and 622. See UPSTREAM_PR_REVIEW.md:
-  isolate driver-enabled Setup mount, bounded guarded deletion, preserve files
-  on failed dismount, restore only missing source-derived Setup metadata with
-  supported wimlib XML operations, and add three documented optional AI policies.
-  These adaptations postdate the retained ISO and are fixture/regression tested.
-- Commit/push is authorized, and branch main/remote upstream ownership was verified
-  as NairoDorian/tiny11builder_2026. The previous improvement commit is pushed.
-  Never repeat benchmarks against old data or overlap servicing processes.
+- Application implementation audited at **`2ae045de3b8a0c4d8dd726534fea906c3cb78b14`**, pushed to [NairoDorian/tiny11builder_2026](https://github.com/NairoDorian/tiny11builder_2026). The remote is named `upstream` here; this is the user's repository, **not** `ntdevlabs`.
+- Existing product/module version labels remain `2026.09` / `2026.9.0`. October improvements are unreleased commits, not a newly invented release tag. Subsequent documentation-only commits do not create a new full-build validation result.
+- Standard and Core builders share `lib/tiny11utils.psm1`; WinForms GUI is `lib/tiny11gui.psm1`; read-only ISO metadata is `lib/tiny11media.psm1` plus bundled DiscUtils. Standard is intended to remain serviceable; Core deliberately removes servicing functionality.
+- Both builders support Windows PowerShell 5.1 and PowerShell 7. PS7 imports the DISM compatibility proxy. The latest local tests used 5.1.26100.9549 and 7.6.5; those engine versions do not establish the host OS build. The user reports Windows 11 26H2; verified source image version is **10.0.26300.9457**, Pro x64/en-US, original index 6.
+- GUI has seven tabs, asynchronous first-use edition reading, overall/current-step progress, elapsed time and estimated remaining time. Overall progress/ETA is approximate; unknown steps animate. `-WorkDirectory` is currently **CLI-only**. Compression engine/effort/thread fields exist in saved GUI state and are forwarded, but have no dedicated visible controls. See PROJECT_GUIDE.md for these boundaries.
+- Maximum means solid LZMS `install.esd`, effort 100 and 64 MiB chunks with wimlib; automatic threads respect memory. `recovery` is its legacy API/CLI alias. Legacy `max` means **balanced LZX**, not maximum.
+- First-use ISO edition selection reads actual WIM XML inside the ISO, without mount/download/persistent cache. Filename/build lists are hints, never fabricated edition/index data.
+- Initial selected-edition export reuses compatible compressed resources from the **original** WIM. Solid ESD inputs become a mountable ordinary WIM. Final maximum export happens after servicing. Small Setup hive-file updates avoid a boot-image mount when supported and no drivers are requested; driver/fallback servicing uses separate `scratchdir_boot`.
 
-## Historical checkpoint verification and subsequent requests
+## Implemented fixes and deliberate decisions
 
-- The final ISO `artifacts/tiny11-26300-verified.iso` was completed from the
-  earlier committed checkpoint using file-only repairs and exports. It is
-  6,248,947,712 bytes; SHA-256
-  `aa608492b46071e2a9df562e455437cf713c9b0e633f843de0ff2a9edff9d463`.
-  Maximum solid LZMS export took 854.1 seconds. Full image integrity passed.
-- Independently extracted SOFTWARE and Default NTUSER from the final ESD and
-  confirmed AllowNewsAndInterests, EnableFeeds and TaskbarDa are DWORD zero.
-  At that time the checkpoint and source were preserved; the checkpoint was later deleted on user request.
-- Earlier diagnostic scheduled tasks/hive mounts were cleaned up. New tests
-  use project files and offline file APIs; do not repeat those host diagnostics.
-- This is not a fresh end-to-end revised builder run, and no VM boot/install
-  test has been performed. Never imply otherwise.
-- User explicitly requests clearer naming/comments, per-step GUI progress,
-  elapsed time/ETA, and continued performance optimization with maximum final
-  compression. Do not adjust their CPU priority or lower final compression.
-- Latest preference supersedes the cache proposal: even first-time ISO
-  detection should be fast. Read tiny image XML directly without mounting or
-  persistent metadata caches. A built-in release list supplies filename hints,
-  but builds, editions and indexes must come from actual image metadata.
-- User requested dependency/package updates for speed. Audit upstream stable
-  versions; dependencies remain project-local. Never install/update the host
-  ADK, DISM, PowerShell, .NET or security settings without new authorization.
-- File-only edition reuse export of the actual checkpoint took 21.9 seconds
-  and passed full wimlib verification. WIM/ESD fixture tests cover LZX, XPRESS,
-  solid LZMS conversion, edition selection, source preservation and failures.
+| Work | Current implementation | Evidence / details |
+|---|---|---|
+| Native stderr / mixed return values | Concurrent native output draining, ordinary progress streaming, numeric return values, inspected exit codes. | [BUILD_BUG_REPORT.md](BUILD_BUG_REPORT.md) |
+| Registry/task stall | Strip TaskCache ID terminator, reject NUL arguments, close stdin, bound registry operations. | Same report; core tests |
+| New protected Windows Security app | Retain `Microsoft.SecHealthUI` on build 26100+; offline Defender policies remain separate. | [APPS.md](APPS.md) |
+| Denied Widgets DWORDs | Defer targeted denied DWORDs until owned hive unload; file-only Offreg write/readback and replacement preserving file security. | Saved final-image readbacks; original failure cause is not proven ACL-related |
+| Hive-load launch-context failure | Early disposable offline-hive preflight plus real mounted SOFTWARE load/unload guard; preserve native error. CIM launch succeeded in controlled tests. | Underlying Windows cause remains unknown; normal GUI/CLI is not automatically rerouted through CIM |
+| Failed cleanup / mount conflict | Isolate install/driver-Setup mounts, reject redirected/still-mounted scratch deletion, bounded retries, retain files when dismount/state is unsafe. | PR #623 adaptation; fixture tests |
+| Silent Setup metadata loss | Restore **only missing** source-derived fields via supported wimlib XML properties, preserve languages/integrity, reject conflicts and re-read. | PR #628/#583 adaptation; real WIM/ESD fixtures |
+| AI/privacy policies | Three verified Edge additions in optional RemoveAI; cloud-search block in optional Search. Advertising-ID policy was already present. | PR #622 and u0reo review; generated TWEAKS.md |
+| Late ISO-writer download failure | Prepare Oscdimg in both real builders before source mounting; atomic pinned portable download, verified retention; final step receives prepared path. | PR #604 adaptation, fresh Microsoft download/native help |
+| Wrong control set / source overlap | Read offline SYSTEM `Select\Default`; route template writes/deletes/service checks; reject overlapping source/work trees before copying/deletion. | pi0n00r-inspired safeguards; mocked selection/failure tests |
+| Reference imports | Retain existing apps/edition choices. No fleet NVMe overrides, raw WIM-header rewrite, extra framework removals, multi-edition default, Linux recapture/resume, RDP/tunnel host changes. | [REFERENCE_REVIEW.md](REFERENCE_REVIEW.md) |
 
-## First-use and content equivalence verification
+## What has actually been verified
 
-Reuse refers to compressed resources in the user's original source ISO, never
-previous build outputs or cached patched images. The optimization must work on
-a single first build. The existing patch behavior must survive export changes;
-only specifically authorized error fixes may alter intended patch results.
+| Revision / scope | Result | Limit |
+|---|---|---|
+| Earlier committed checkpoint plus file-only repairs | 6,248,947,712-byte maximum ISO; full image integrity and three repaired DWORD readbacks; logical content comparisons. | Historical checkpoint workflow; deleted output; not a fresh current-script build |
+| `7aa45d5aa88e5c2bab9a9df692fe51404357c8ce` / two sequential fresh Standard builds | None/skipped cleanup: **557.8 s**, **14,746,617,856 bytes**. Maximum/normal cleanup: **1265.9 s**, **6,229,929,984 bytes**. Both exit 0, no build warnings, saved-image checks passed. | Cleanup differs; one sample each; no old-repository full-run baseline; no VM install |
+| `cebf4cd` / PR #623/#628/#622 changes | Dual-shell regressions, real export fixtures, metadata preservation/readback and cleanup cases passed. | Postdates measured full ISOs |
+| `2ae045d` / PR #604 and six new reference branches | **1,920** core checks PS7, **1,918** PS5.1; **129** real export and **23** media/progress checks per shell; parser, generated freshness and PSScriptAnalyzer passed. [CI all green](https://github.com/NairoDorian/tiny11builder_2026/actions/runs/37245856681). | No fresh full ISO or VM installation of this revision; control-set routing is mock-tested |
 
-Extracted the original ISO's WIM into a new project test folder without mounting
-and exported its actual Pro index 6. The optimized edition export took 23.4 s.
-All 187,635 paths matched the source edition's logical metadata digest:
-41e3771b72fed692d68e5957eb26769524c868371f1f20906eef039a17cdef1a.
-The selected WIM passed full data/integrity verification.
+Saved-image checks independently verified one container/edition, required source metadata, full image data/integrity, absence of all 29 planned removed app families, presence of Terminal/Calculator/Notepad/Photos, targeted Edge/OneDrive absence and the three DWORDs extracted from finished media. File presence of BIOS/UEFI boot material is not a boot test. See [PERFORMANCE.md](PERFORMANCE.md), [BUILD_BUG_REPORT.md](BUILD_BUG_REPORT.md) and [VERIFICATION.md](VERIFICATION.md).
 
-Compared the patched checkpoint against the final maximum-compressed ESD:
-171,122 unchanged paths and 34,003 hard-link groups match (205,125 canonical
-records). Digest: 36C42CFFEAF9BB4614C3D38D3985543EA89D7D94C6268653E4635DA3599FDE5C.
-Only SOFTWARE and Default NTUSER, intentionally repaired for the three denied
-DWORDs, were excluded; their saved DWORD values were independently verified.
-Physical container offsets/compressed sizes and numeric hard-link IDs were
-normalized; hard-link memberships, security, times, attributes, stream hashes
-and uncompressed sizes were compared. Raw reports formerly lived in logs/manual-verification and were deleted during authorized cleanup; saved summaries remain under docs/verification/2026-10-04.
+The 23.4-second figure measured **initial source-edition export**, never a full build. The final maximum export consumed about 838 seconds in the fresh maximum run. No measured general 2x full-build improvement is claimed.
 
-WIM/ESD regression tests now also verify final maximum compression preserves
-alternate streams, metadata, security and actual hard-link membership. The
-upstream script already does /ResetBase cleanup and recovery compression, so
-those costly stages are not new. New step-duration logs expose slow stages.
+## Artifact availability and workspace hygiene
 
-## Fresh measurement authorization
+- Original input exists at `C:\Users\Z\Downloads\PROJECTS\ISOs\Windows11_Client_x64_en-us_26300_9457.iso` (9,047,330,816 bytes).
+- The historically retained maximum output path was `C:\Users\Z\Downloads\PROJECTS\ISOs\tiny11-26300-maximum-20261004-190253.iso`, SHA-256 `2b1cced1fe91288292b054416f9ce230168ba71eee1849290606b973c1f56808`. It and its sidecars are **absent at that path**, reconfirmed 2026-10-05. Why it disappeared is unknown. Do not offer it as an available download or search private folders indiscriminately.
+- `C:\.temp`, checkpoints, other generated media and historical raw diagnostics were deleted on request. The old `logs/manual-verification` and `logs/upstream-audit` paths are historical identifiers, not retained evidence.
+- Compact evidence remains in `docs/verification/2026-10-04` and `2026-10-05`. New working logs may be regenerated by tests/app use. Save relevant compact summaries before cleaning owned fixtures.
+- The user subsequently requested more reference source. Keep **21** clean checkouts under ignored `repos/`: original plus 20 community projects. Their code is intentionally local; inventory and revision audits are tracked. The six exact branches and all comparisons are in REFERENCE_REVIEW.md. All 15 previously downloaded heads were unchanged when fetched on 2026-10-05.
+- Workspace was about **75.75 MB**, including roughly **52.7 MB** of reference source/Git histories after the last application commit. These are dated observations, not size guarantees. Do not remove user-requested references to meet an older cleanup request.
 
-The user clarified that offline ISO files, work files and normal offline-image
-mounts are authorized. The restriction applies to system files/settings of the
-running Windows machine. Do not alter those, create host scheduled tasks,
-change Defender configuration, or set CPU priority.
-Fresh measurement uses a new isolated project WorkDirectory and the original
-ISO/preset, with maximum compression; never consumes previous patched outputs.
+## Next agent: outstanding work and safe starting point
 
-## Upstream oversized-image and silent-install regressions
-
-- [Issue #317](https://github.com/ntdevlabs/tiny11builder/issues/317#issuecomment-2591938012)
-  identifies commit bba078c replacing DISM recovery compression with PowerShell
-  Fast compression. Our final maximum export explicitly uses solid LZMS.
-- [Issue #318](https://github.com/ntdevlabs/tiny11builder/issues/318#issuecomment-2587056878)
-  records locked originals/intermediates remaining alongside the final image.
-  Our source copy excludes installation images; final replacement fails on
-  error; ISO mastering now refuses multiple/temporary installation images.
-- [Issue #321](https://github.com/ntdevlabs/tiny11builder/issues/321) and
-  [#589](https://github.com/ntdevlabs/tiny11builder/issues/589) describe an
-  unsupported Repair-WindowsImage -StartComponentCleanup parameter. We call
-  DISM.exe /Cleanup-Image /StartComponentCleanup /ResetBase directly and report
-  its result. Cleanup is a distinct operation from final compression.
-- [Issue #583](https://github.com/ntdevlabs/tiny11builder/issues/583) and the
-  still-open [PR #628](https://github.com/ntdevlabs/tiny11builder/pull/628)
-  report lost edition/language XML causing a product-key validation failure
-  at installation despite successful build. The existing verified ESD has
-  Professional, Client, WinNT, Terminal Server and en-US metadata. This is an
-  image inspection, not proof of a successful VM install.
-
-A newer source alone is not sufficient evidence that a larger ISO is correct.
-Check actual compression, duplicate installation images, successful removals/
-cleanup and edition metadata. Do not promise a fixed 2-3 GB output size.
-
-The user explicitly authorized C:\.temp for shortened offline-work paths and
-ISO outputs. Preserved C:\tiny11 and C:\scratchdir work may be moved beneath
-C:\.temp after confirming no image writers/mounts remain. Source ISO stays
-preserved. This authorization does not permit editing running Windows files.
-Latest request: measure fresh no-compression and fastest builds, compare size/
-time, and fix the remaining offline hive-loading error before proceeding.
-
-The preserved checkpoint and old scratch folder were moved into C:\.temp\preserved-tiny11 on explicit user request, after no writers/mounts remained. A disposable SOFTWARE copy still failed reg load at a 33-character path; do not attribute this failure to path length alone. The first fresh maximum build stopped after mounting, produced no ISO, cleaned up, and exited (553.7 s including failure cleanup). Edition export took 33.2 s and mount took 186.5 s.
-
-
-For the detailed investigation, controlled hive-loading tests, related upstream reports and evidence limits, see [BUILD_BUG_REPORT.md](BUILD_BUG_REPORT.md). The user accepts approximately 5-6 GB if correctness is verified; do not chase a historical size by changing the patch feature set.
-
-Fresh diagnostic fast build completed cleanly in 575.8 s (8,382,115,840-byte ISO); independent final ISO inspection verified all 29 removed app families absent, all four kept utilities present, targeted Edge/OneDrive paths absent, three DWORD repairs, image integrity and edition/language metadata. No VM install test. User's requested benchmark comparison is now two fresh builds: none/skip-cleanup versus maximum/normal-cleanup. None started 18:54:07. Code/preset hashes are saved per run; keep builder code unchanged between these two measurements.
-
-## Reference audit and dependency readiness - 2026-10-05
-
-- Downloaded the six user-requested branches and refreshed every existing
-  reference: 21 checkouts total, original plus 20 community projects. All 15
-  pre-existing heads remain current. Keep downloaded source under ignored
-  repos/; tracked inventory/sync/audit is in data/reference-repos.json,
-  scripts/sync-reference-repos.ps1 and docs/REFERENCE_REVIEW.md.
-- Do not execute reference scripts or copy changes blindly. Safely adapted
-  offline Select\Default control-set routing and source/work-tree separation
-  from the deployment reference, plus documented cloud search policy. The
-  advertising-ID machine policy was already present. Existing app/edition/
-  architecture choices and final maximum compression stay intact.
-- PR #604 is still open. Both makers now prepare Oscdimg before image work;
-  portable download is pinned, atomic, verified on reuse and retained. This is
-  a tiny tool cache, never previous patched-image reuse or a first-run speed
-  claim. DryRun remains download-free. A disposable fresh Microsoft download
-  passed SHA/native help/reinitialization and was cleaned.
-- No new complete Windows ISO or VM install for this audit. Previous fresh
-  benchmark reports are historical and predate these edits. New verification
-  summary is saved under docs/verification/2026-10-05.
-- Explicit user boundary remains: never edit running Windows system files,
-  live registry/settings, Defender, scheduled tasks or CPU priority. Project
-  and offline ISO/image files and normal temporary owned offline attachments
-  are authorized. No overlapping builds, reboot requirement or prior patched
-  data reuse. This source audit/test work did not mount/patch an actual ISO.
-
-Final checks for this audit: PowerShell 7 1,920 core checks and PowerShell 5.1
-1,918 core checks, all passed; 129 real WIM/ESD export checks and 23 media/
-progress checks per shell passed. Parse/command resolution in both shells,
-generated-file freshness, PSScriptAnalyzer and whitespace checks passed.
-All 21 reference checkouts are clean and match the saved heads. Diagnostic
-fixtures/this turn's raw logs were cleaned after saving compact evidence.
-Workspace was about 75.6 MB including roughly 52.7 MB of downloaded reference
-source/Git histories before final commit. References remain intentionally.
+1. Read [PROJECT_GUIDE.md](PROJECT_GUIDE.md), [CONTRIBUTING.md](../CONTRIBUTING.md) and [VERIFICATION.md](VERIFICATION.md). Consult the bug/performance/reference reports for the change being considered. Read an available `RTK.md`; it remains absent from this checkout.
+2. Start from current Git status and exact code/preset/options. Use fresh isolated work and original input for any later authorized build. Verify earlier writers/attachments have ended before launching; do not automatically start another benchmark just because historical reports mention one.
+3. A fresh full **current-revision** Standard build and a disposable VM boot/install would close the principal validation gap. Installation media can create disk-writing behavior, especially ZeroTouch; use an explicitly disposable VM/test disk and record edition, firmware mode and results. This documentation update did not perform either.
+4. The unexplained native hive-load launch-context issue remains unresolved. The preflight detects it early; successful CIM tests do not prove normal GUI launching is repaired. Keep this distinction if revisiting launch integration.
+5. ARM64, Core, multilingual and driver-enabled end-to-end builds have not been demonstrated by the x64 Pro benchmarks. Existing fixtures cover some mechanics, not complete platform installation support.
+6. GUI visible controls do not yet expose isolated WorkDirectory or dedicated compressor engine/effort/thread selectors. Do not describe this as implemented. Cleanup is best-effort, and some legacy recovery routines use shared aliases/global mountpoint cleanup; isolation is not a cross-process lock. Core's existing offline WinSxS `cmd/rmdir` fallback is separate from the guarded scratch-folder cleanup and deserves review before claiming all deletions use that guard.
+7. Preserve measured scope and historical attribution when updating docs. Keep new state at the top, move history to the relevant report, and update generated catalogs through `scripts/update-generated.ps1`, never manual edits that CI will overwrite.

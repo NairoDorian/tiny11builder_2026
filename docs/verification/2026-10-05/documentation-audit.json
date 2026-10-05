@@ -1,0 +1,93 @@
+{
+  "Checked": "2026-10-05T02:29:36.7958929+02:00",
+  "ApplicationBaseline": "2ae045de3b8a0c4d8dd726534fea906c3cb78b14",
+  "MarkdownFiles": [
+    {
+      "Path": "AGENTS.md",
+      "Sha256": "AB29979E9221BFEBB8975E28EC758169EDE7E6352E61DD03BF4ABE502CB3A4E1"
+    },
+    {
+      "Path": "README.md",
+      "Sha256": "6177F9FD44F3717F2831500866F878E3DAA35FECB6799B82AB8189B99C008035"
+    },
+    {
+      "Path": "CONTRIBUTING.md",
+      "Sha256": "A406B7FC3525CFB5B563B0DED7095DC7CF6B04DFE9552339122EA4168A82CB93"
+    },
+    {
+      "Path": "CHANGELOG.md",
+      "Sha256": "CB17DFCA5BC31F10D645C5DAAACFEA2CF3AE01D674C2446EBE8387C04C7A5EB4"
+    },
+    {
+      "Path": "Browsers/README.md",
+      "Sha256": "A96F83535BB9B592DC8195605D3051496ABBF01078F1960801B8D44B8C2CDA1E"
+    },
+    {
+      "Path": "payload/README.md",
+      "Sha256": "33E1D75761AB0F7DFD5C9FB760E8F7591005A12ACDE9EE8730C480F7F2C6D8DB"
+    },
+    {
+      "Path": "payload/packages/README.md",
+      "Sha256": "9031505A2C59047A04D71B676C68249F8ECD5E75E7B6583D43291127F9B3AEE5"
+    },
+    {
+      "Path": "lib/vendor/DiscUtils/README.md",
+      "Sha256": "1B2053C72FCB8C71D7C4A473C439A937DA5D77AD6F6E74519976AACBE2B7E86D"
+    },
+    {
+      "Path": "docs/APPS.md",
+      "Sha256": "FEB263062EBEA0588EC24F202BF0E28415CBF76F9F6822F0913826FB4E0B643E"
+    },
+    {
+      "Path": "docs/BUILD_BUG_REPORT.md",
+      "Sha256": "F9923F4C2CA9AFA51935B4FFCEBEBC4180DDEE97BB360B8D0A124ED1826DD264"
+    },
+    {
+      "Path": "docs/PERFORMANCE.md",
+      "Sha256": "A20B2F675C21A289E0EBB2ADC29283AB49CB30A91D17E5467C082818AA382CC9"
+    },
+    {
+      "Path": "docs/PROJECT_GUIDE.md",
+      "Sha256": "93E9715F67068EBB855E56377274FF027A06999C35CCD4B6722BD70FC7103441"
+    },
+    {
+      "Path": "docs/README.md",
+      "Sha256": "C3A93A5F0A337168D7EF2D8A0BD4DC3BED0551273036117E8CE77368232B31E3"
+    },
+    {
+      "Path": "docs/REFERENCE_REVIEW.md",
+      "Sha256": "FAE2EB92A9AA7631359DC9DD26C026341BB9700601FEC31CDEDFBA81789AA021"
+    },
+    {
+      "Path": "docs/TWEAKS.md",
+      "Sha256": "A4C1A899FC1AA746C21E399B65F6D879C27220ED02C3C918B9CD9DBBF0CB3581"
+    },
+    {
+      "Path": "docs/UPSTREAM_PR_REVIEW.md",
+      "Sha256": "49959403DE09C476432A954990F6C0A625BFFF10FDEF91CDA4B5847AE0E71DF8"
+    },
+    {
+      "Path": "docs/VERIFICATION.md",
+      "Sha256": "21CF21EAAF773FB0A75D5FF4AFB0B01A997A78A1AF3ADD5A7326413AE9469AD2"
+    },
+    {
+      "Path": "docs/WORKING_NOTES.md",
+      "Sha256": "96B270ED6FBC04CBB83374304219D9D21A1F6DE579BF50E51437A0F1A8C4376E"
+    }
+  ],
+  "LocalLinksChecked": 206,
+  "LocalLinkOrHeadingFailures": 0,
+  "ApplicationRecordedSourceHashesUnchanged": 7,
+  "AllowedNonMarkdownChange": "scripts/update-generated.ps1: emitted documentation strings/table spacing only; original UTF-8 BOM preserved",
+  "GeneratedFreshness": "Passed in PowerShell 5.1 and 7",
+  "ParseAndCommandResolution": "Passed in PowerShell 5.1 and 7",
+  "PSScriptAnalyzer": "Passed",
+  "GitWhitespace": "Passed",
+  "SourceIsoBytesRechecked": 9047330816,
+  "HistoricalMaximumPathExists": false,
+  "TemporaryRootExists": false,
+  "FullIsoBuildForDocumentation": false,
+  "VmInstallation": false,
+  "LiveWindowsChanged": false,
+  "Note": "Direct PowerShell 5.1 File invocation was blocked by script policy; process-scoped launch flag ran checks without persisting host policy. No application behavior, answer XML, manifests, visible GUI controls or preset values changed."
+}

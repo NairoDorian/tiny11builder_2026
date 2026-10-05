@@ -1,7 +1,6 @@
 # Build performance and dependencies
 
-Audited on 2026-10-04. Host settings and CPU priority are outside this project's
-optimization work. Maximum final compression stays enabled by default.
+Mechanisms reconciled with implementation `2ae045d` on **2026-10-05**. Full-build timings below are dated **2026-10-04 at `7aa45d5`**, before later PR/reference changes. Host settings and CPU priority are outside this project's optimization work. Maximum final compression stays enabled by default. Read [WORKING_NOTES.md](WORKING_NOTES.md), [PROJECT_GUIDE.md](PROJECT_GUIDE.md) and [VERIFICATION.md](VERIFICATION.md) for current permissions, pipeline and evidence limits.
 
 ## Where time is saved
 
@@ -103,7 +102,7 @@ were removed on the user's request. Saved JSON evidence remains in Git.
 | Finished ISO | 6,248,947,712 bytes; image data integrity passed |
 
 These earlier operation timings used the committed checkpoint plus file-only repairs.
-The complete fresh measurements above supersede their verification limitation.
+The complete fresh measurements establish full-run results for their own `7aa45d5` revision; they do not validate all later application changes or prove VM installation.
 The checkpoint and old output were deleted during the authorized cleanup.
 
 Overall GUI percentages use stage weights and total ETA is explicitly rough.
@@ -115,17 +114,16 @@ Unmeasurable steps show an animated bar rather than invented percentages.
 
 | Dependency | Project version/action | Performance relevance |
 |---|---|---|
-| [wimlib](https://www.wimlib.net/index.html) | 1.14.5, current official stable; ZIP/executable/DLL SHA-256 pinned | Main compression/export engine; parallel LZMS and compressed-resource reuse |
-| [DiscUtils](https://www.nuget.org/packages/DiscUtils.Udf/0.16.13) Core, Streams, Iso9660, Udf | 0.16.13, latest stable packages; MIT assemblies bundled with hashes/license | Read-only ISO metadata without mounting or first-use downloads |
-| [PSScriptAnalyzer](https://www.powershellgallery.com/packages/PSScriptAnalyzer/1.25.0) | 1.25.0, current stable; pinned project-local fallback | Development checks only; no effect on ISO compression |
+| [wimlib](https://www.wimlib.net/index.html) | 1.14.5 configured pin; ZIP/executable/DLL SHA-256 pinned | Main compression/export engine; parallel LZMS and compressed-resource reuse |
+| [DiscUtils](https://www.nuget.org/packages/DiscUtils.Udf/0.16.13) Core, Streams, Iso9660, Udf | 0.16.13 configured pin; MIT assemblies bundled with hashes/license | Read-only ISO metadata without mounting or first-use downloads |
+| [PSScriptAnalyzer](https://www.powershellgallery.com/packages/PSScriptAnalyzer/1.25.0) | 1.25.0 configured pin; pinned project-local fallback | Development checks only; no effect on ISO compression |
 | [actions/checkout](https://github.com/actions/checkout/releases/tag/v7.0.1) | Updated from v5 to v7.0.1 | CI dependency/security updates; no local build acceleration |
 | [actions/upload-artifact](https://github.com/actions/upload-artifact/releases/tag/v7.0.1) | Updated from v4 to v7.0.1 | CI screenshot uploads; no local build acceleration |
 | [Microsoft ADK / Oscdimg](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install) | Installed ADK tools are preferred; pinned standalone Oscdimg 2.56 fallback retained | ISO mastering already uses duplicate-file elimination; no unverified speed claim from replacing it |
 | Windows DISM, Storage, WinForms, .NET and Offreg | Read the existing host components; no host upgrade/install | Host servicing compatibility; tools remain read-only outside offline images |
 | Firefox / Chrome optional first-login installers | Existing vendor `latest` URLs | Installed on the resulting Windows system, outside the ISO build's compression path |
 
-Microsoft lists ADK 10.1.26100.9457 for Windows 26H2/25H2/24H2. Installing it
-would change the host and was therefore not performed. The host's DISM was
+The 2026-10-04 dependency research recorded Microsoft ADK 10.1.26100.9457 for Windows 26H2/25H2/24H2. This is a dated observation, not a live release-feed guarantee. Installing it would change the host and was not performed. The host's DISM was
 observed as 10.0.26100.8457. Bundled or downloaded tools are kept inside this
 repository, and builds do not poll release feeds on startup.
 
@@ -153,12 +151,13 @@ Only SOFTWARE and Default NTUSER, intentionally repaired for the three denied
 DWORDs, were excluded; their saved DWORD values were independently verified.
 Physical container offsets/compressed sizes and numeric hard-link IDs were
 normalized; hard-link memberships, security, times, attributes, stream hashes
-and uncompressed sizes were compared. Reports live in logs/manual-verification.
+and uncompressed sizes were compared. The raw `logs/manual-verification` reports were deleted during authorized cleanup; the compact dated summaries under `verification/2026-10-04` remain.
 
 WIM/ESD regression tests now also verify final maximum compression preserves
 alternate streams, metadata, security and actual hard-link membership. The
 upstream script already does /ResetBase cleanup and recovery compression, so
 those costly stages are not new. New step-duration logs expose slow stages.
+
 ## Upstream oversized-image and silent-install regressions
 
 - [Issue #317](https://github.com/ntdevlabs/tiny11builder/issues/317#issuecomment-2591938012)
@@ -184,5 +183,23 @@ A newer source alone is not sufficient evidence that a larger ISO is correct.
 Check actual compression, duplicate installation images, successful removals/
 cleanup and edition metadata. Do not promise a fixed 2-3 GB output size.
 
-
 For the detailed investigation, controlled hive-loading tests, related upstream reports and evidence limits, see [BUILD_BUG_REPORT.md](BUILD_BUG_REPORT.md). The user accepts approximately 5-6 GB if correctness is verified; do not chase a historical size by changing the patch feature set.
+
+## October 5 safeguards: benefit without a new speed claim
+
+PR #604 prepares Oscdimg before image work and retains a 143,360-byte verified tool. A fresh actual download took 1.115 seconds and its disposable test fixture was removed. This avoids losing a long serviced build to a late network/tool failure; it is not an additional compression acceleration and not reuse of patched Windows data. DryRun skips the download. Source/work overlap and `Select\Default` routing similarly prevent incorrect work rather than establish a measured speedup. See [PR review](UPSTREAM_PR_REVIEW.md) and [fork review](REFERENCE_REVIEW.md).
+
+None of the six new branch reviews supplied a proved faster, equivalent complete pipeline that was blindly substituted here. Multi-edition servicing multiplies work/content; Linux filesystem recapture changes the servicing/metadata contract; NVMe feature overrides change the target driver, not the ISO compressor; RDP/CI workflows do not speed the local builder. Most privacy/removal ideas already existed, and one documented cloud-search policy was added under its current optional group.
+
+## Compression, progress and comparison rules
+
+- `maximum` is solid LZMS. `balanced` is LZX, `fast` is XPRESS, `none` writes uncompressed file resources. Legacy `recovery` means maximum; legacy `max` means **balanced**. Do not rename backend API flags incorrectly.
+- `-Fast` skips component cleanup and supplies fast compression only if no explicit Compress was passed. Therefore `-Compress maximum -Fast` still skips cleanup, and `-Compress none -Fast` is the measured fastest uncompressed configuration, not an output-equivalence promise.
+- Final compression encodes the **serviced Windows install image**, including resources/metadata. Setup/boot media is then packaged by Oscdimg. Larger uncompressed install containers and longer checksum/media writes are expected; ISO mastering is not a second whole-disc compression pass.
+- Resource reuse works on the first run from original compressed input; tool retention is separate. There is no persistent edition cache or saved-patched-image resume optimization. Filename release hints do not supply authoritative editions/builds.
+- Overall GUI completion/total ETA uses fixed stage ranges. Native current-step percentages are measured where available, but integrity/export subpasses can have different rates; stale/unknown progress yields an animated bar/no step ETA. It is incorrect to infer exact remaining time from the overall bar.
+- High effort/extra threads have CPU/RAM costs; all available threads do not guarantee every DISM step parallelizes. Never issue concurrent mutations against the same image, change this session's priority/Defender settings or sacrifice maximum compression silently.
+
+For a future equivalent-output optimization, compare the same original edition and complete effective preset/app/cleanup choices, verify logical streams/security/times/hard-link relationships and source-derived Windows XML, then inspect relevant saved hive values. Compressed container byte offsets/sizes and raw ISO hashes can change while logical content matches. Intentional policy fixes can change hive data; identify them explicitly rather than call the entire image byte-identical. Cleanup-skipped and cleaned builds have intentionally different component state.
+
+Future full measurements must name the new code revision, actual flag values, backend/effort/threads, source/output hashes, timing interval and whether VM installation was tested. Preserve enough compact configuration to reproduce the run after raw logs/presets are deleted; an old preset hash alone cannot reconstruct all flags. No new complete current-code build, old-repository baseline, universal speedup or fixed 2–3 GB output target is established by this document refresh.

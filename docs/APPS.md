@@ -4,7 +4,8 @@
 
 Provisioned (Store) apps are matched by **name prefix** against what the image actually
 contains, so entries for apps a given build does not ship are simply ignored. Removed apps
-are also marked *deprovisioned*, so feature updates do not reinstall them.
+are also marked *deprovisioned* to discourage reprovisioning; later Windows releases can change package identities.
+See [PROJECT_GUIDE.md](PROJECT_GUIDE.md) for planning/registry mechanics and [VERIFICATION.md](VERIFICATION.md) for tested scope.
 
 ## Removed by default ([`removePackage.txt`](../removePackage.txt))
 
@@ -136,12 +137,12 @@ entry would match them:
 |---|---|---|---|---|
 | Microsoft Store (`Microsoft.WindowsStore`, `Microsoft.StorePurchaseApp`) | kept | kept | kept | removed |
 | Windows Security app (`Microsoft.SecHealthUI`) | kept | kept | kept | kept on build 26100+; removal attempted on older media |
-
-On build 26100 and later, the protected Windows Security app is retained even with `RemoveDefender=true`. Defender policies/services are configured separately; retaining the UI does not change those choices. Tamper protection can prevent Defender-disable settings from taking effect.
 | Xbox app, Game Bar, Xbox sign-in | removed | **kept** | removed | removed |
 | Edge browser | removed | removed | removed | removed |
 | Edge WebView2 runtime | kept | kept | kept | removed |
 | OneDrive | removed | removed | removed | removed |
+
+On build 26100 and later, the protected Windows Security app is retained even with `RemoveDefender=true`. Defender policies/services are configured separately; retaining the UI does not change those choices. Tamper protection can prevent Defender-disable settings from taking effect.
 
 ## Windows capabilities
 

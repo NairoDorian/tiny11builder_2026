@@ -1,53 +1,37 @@
-# Payload: run your own scripts after installation
+# Payload and installed-system hooks
 
-Build with `-Payload` (GUI: **Extras** tab, *Run my scripts from payload\packages*):
-every file in [`packages/`](packages) is copied into the image, and the top-level
-`*.cmd` / `*.ps1` files are executed **once, as SYSTEM, at the end of Windows Setup**
-(before the first sign-in), in alphabetical order. The Extras tab lists the scripts it
-found and has a button that opens this folder.
+Updated 2026-10-05. These scripts are **staged into the offline image** during the build and run on the newly installed Windows. They are not permission to change the live build host. See [PROJECT_GUIDE.md](../docs/PROJECT_GUIDE.md) and [WORKING_NOTES.md](../docs/WORKING_NOTES.md).
 
-## How it works
+## SetupComplete: SYSTEM, before first sign-in
 
-The builder writes `%WINDIR%\Setup\Scripts\SetupComplete.cmd` into the image
-(an existing OEM `SetupComplete.cmd` is preserved and chained first). It runs:
+Enable `-Payload` (GUI Extras) to include files from [packages/](packages/). The current selection helper copies **top-level files except README.md**; it does not recursively copy nested directories. Companion installers/data at that level are copied as well, but only top-level `.cmd` and `.ps1` scripts are executed.
 
-1. the first-boot commands of the tweak catalog (for example the Ultimate
-   Performance power plan of the Gaming preset, or disabling `wuauserv` on Core);
-2. `%WINDIR%\Setup\Tiny11\packages\*.cmd`, then `*.ps1` (alphabetical order);
+`Install-ImagePayload` creates `%WINDIR%\Setup\Scripts\SetupComplete.cmd`. An existing OEM hook is moved to `%WINDIR%\Setup\Tiny11\SetupComplete.oem.cmd` and chained first. The generated hook then runs catalog FirstBoot commands and staged package scripts:
 
-and logs everything to `%WINDIR%\Setup\Tiny11\setupcomplete.log`.
+1. OEM hook and catalog commands, in generated order.
+2. All matching `packages\*.cmd` files.
+3. All matching `packages\*.ps1` files through installed Windows PowerShell 5.1.
 
-A second hook, `%WINDIR%\Setup\Tiny11\FirstLogon.cmd`, runs at the first sign-in
-(in the user's session, after waiting for the network). It installs the browser
-chosen with `-Browser` and then deletes the cached answer files, which contain
-the account password. Its log is `%WINDIR%\Setup\Tiny11\firstlogon.log`.
+CMD wildcard enumeration is used within each script type. Prefixes help name/order scripts within a group, but there is no single sorted sequence interleaving `.cmd` and `.ps1`; put tightly dependent operations in one explicit orchestrator script instead of assuming `10-x.ps1` precedes `20-y.cmd`. Runtime hook output is appended to `%WINDIR%\Setup\Tiny11\setupcomplete.log`; the hook continues to other scripts rather than making each package failure fatal to the builder.
 
-## Writing a package
+Scripts run as SYSTEM, with no user signed in and possibly no network. Use silent offline installers, handle their exit codes explicitly, avoid prompts and keep work bounded: target Windows waits for SetupComplete. Companion files are addressed with `%~dp0` or `$PSScriptRoot`. Nested payload folders need an intentional selection/staging change; merely adding a folder here will not include it.
 
-- It runs as **SYSTEM** with no user logged on and possibly **no network**:
-  prefer offline installers. Every file in `packages/` is copied into the image
-  (only the top-level `.cmd`/`.ps1` files are *executed*), so a script can call
-  an installer placed next to it: `"%~dp0vc_redist.x64.exe" /install /quiet /norestart`
-  or `& "$PSScriptRoot\setup.msi"`.
-- Be silent: `/quiet`, `/qn`, `/S`... Nothing can prompt.
-- Return quickly; Windows waits for SetupComplete before showing the desktop.
-- Exit codes are logged but never stop the other packages.
+## FirstLogon: first user's session
 
-Examples:
+`%WINDIR%\Setup\Tiny11\FirstLogon.cmd` waits for network availability, runs staged first-logon `.cmd` then `.ps1` scripts (currently optional [browser installers](../Browsers/README.md)), and deletes selected cached answer files. Its log is `%WINDIR%\Setup\Tiny11\firstlogon.log`. This is separate from SetupComplete and from ISO-build timing.
+
+Generated/custom answer files can contain account secrets; Base64 obfuscation is not encryption. The built-in cleanup targets Panther/Sysprep answer-file locations but is not proof that every other custom copy was erased. GUI profile exports omit the password; inspect custom payloads/logs before publishing them.
+
+## Example package
 
 ```bat
-:: packages\10-power.cmd - balanced plan, no hibernation file
+:: packages\10-power.cmd -- runs only on the NEW installed Windows
+@echo off
 powercfg.exe /setactive 381b4222-f694-41f0-9685-ff5bb260df2e
-powercfg.exe /hibernate off
+if errorlevel 1 exit /b 1
+exit /b 0
 ```
 
-```powershell
-# packages\20-explorer.ps1 - show file extensions for every new user
-reg.exe load HKU\T11Default C:\Users\Default\NTUSER.DAT
-reg.exe add "HKU\T11Default\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f
-reg.exe unload HKU\T11Default
-```
+This is an optional target-system customization example, not a command to run on the current host. Put dependencies/required ordering inside the script. The builder's own target-system tweak commands are generated from the catalog, not edited by changing reference autounattend files.
 
-Office is intentionally not bundled; install it after setup with the Office
-Deployment Tool or Office Tool Plus. VC++ 2005 redistributables are known to
-break unattended setup on current builds (noted by the MOPELotus fork).
+Office is not bundled. Older fork notes mentioned installer-specific unattended failures such as VC++ 2005; those are historical reports, not a reproduced current compatibility matrix. Test any chosen payload on a disposable target and report actual installer/version/exit behavior. The current audit does not claim browser/payload execution passed a complete VM installation.

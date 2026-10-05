@@ -1,81 +1,67 @@
-# Contributing
+# Contributing and maintaining the handoff
 
-Thanks for helping. This project extends [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder)
-with ideas from 15 community forks (see the [README credits](README.md#history-and-credits)).
-Improvements of any size are welcome: new tweaks, package names for new Windows builds, bug fixes,
-GUI polish, docs.
+Read [docs/WORKING_NOTES.md](docs/WORKING_NOTES.md), [the project guide](docs/PROJECT_GUIDE.md) and [verification guide](docs/VERIFICATION.md) first. The [documentation map](docs/README.md) is the reading route for future agents. This is a fork of ntdevlabs with **21 studied checkouts including the original**; source provenance and selective imports are recorded in [REFERENCE_REVIEW.md](docs/REFERENCE_REVIEW.md).
 
 ## Ground rules
 
-1. **Never touch the host.** Everything the builders change lives in the mounted image or in its
-   offline hives (`HKLM\zSOFTWARE`, `zSYSTEM`, `zNTUSER`, `zDEFAULT`, `zCOMPONENTS`).
-   `Set-RegistryValue` / `Remove-RegistryValue` enforce this: they refuse other paths and hives
-   that are not loaded. Do not bypass them with raw `reg.exe` or `Set-ItemProperty`.
-2. **Offline hives have no `CurrentControlSet`**: use `ControlSet001`.
-3. **Code must run on Windows PowerShell 5.1 and PowerShell 7.**
-   - Save `.ps1/.psm1/.psd1` files as UTF-8 **with BOM**; `.gitattributes` keeps CRLF line endings.
-   - DISM cmdlets under PowerShell 7 go through the compatibility session (`Initialize-DismModule`,
-     called by `Test-Prerequisites`) and return deserialized objects: read properties and compare
-     enum values as strings; never call methods on DISM objects or type-check them.
-   - Start child PowerShell processes with `Get-PowerShellExecutable`, not a hard-coded `powershell.exe`
-     (the `SetupComplete`/first-logon scripts inside the image are the exception: only 5.1 exists there).
-   - Run `scripts\test-core-helpers.ps1` under both `powershell.exe` and `pwsh`.
-   - Never write `& tool 2>$null` in code that runs with `$ErrorActionPreference = 'Stop'`: PS 5.1
-     turns the stderr line into a terminating error. Use `Invoke-Native`.
-4. **Fail early, degrade gracefully.**
-   - Validate options before the long work starts.
-   - A single tweak or app that fails is a counted warning.
-   - A failed mount, commit, export or ISO step is fatal, and the trap then cleans up.
-5. **Keep the GUI and the command line equivalent.** Every GUI control maps to a builder parameter
-   through `ConvertTo-GuiBuildRequest`, and the Build tab shows the resulting command line.
+1. Respect the session's live-Windows read-only boundary. Modify project/offline-image files and owned offline hive attachments only. The optional product `-DefenderExclusion` switch is not authorized here. No scheduled-task/priority/security/toolchain changes on this host.
+2. Never overlap builders or image/hive writers, even in separate work folders. Shared z* aliases/global recovery are not protected by a cross-process lock. Before a retry, verify the previous owned process tree has exited and attachments are released. Preserve files when mount state is unknown.
+3. Registry writes/deletes go through the offline helpers, which validate aliases and loaded ownership. Catalog `ControlSet001` is a **template** resolved through the image SYSTEM `Select\Default`. Do not use `CurrentControlSet`, hardcode another live host path, or bypass guards with raw registry cmdlets. Deferred protected DWORD entries must receive the resolved subkey.
+4. Preserve first-use behavior: compressed-resource reuse means the original ISO's resources, never earlier patched outputs/cache/checkpoints. Maximum final compression remains default. `recovery` aliases maximum; legacy `max` aliases balanced. Any intentional patch-feature change needs explicit rationale and evidence.
+5. Distinguish critical failures from counted warnings. Validate options early; mount/commit/export/metadata/mastering failures must stop. A counted app/tweak warning is not proof of a successful patch. Preserve native messages and avoid attributing an unresolved failure to an unproved cause.
+6. Keep GUI-to-builder translation accurate. Update visible controls/state/validation/help together when adding an exposed option. Current WorkDirectory is CLI-only; compressor advanced state values have no dedicated selectors. Do not document new controls before they exist.
 
-## Where things go
+## PowerShell and native conventions
 
-| Change | File |
+- Support **Windows PowerShell 5.1 and PowerShell 7**. ASCII-only scripts may be BOM-less; non-ASCII PowerShell source needs UTF-8 **BOM** so 5.1 does not interpret it as ANSI. Preserve the repository's `.gitattributes` line-ending rules and existing encoding when editing.
+- DISM under PS7 is imported by `Initialize-DismModule` through Windows PowerShell compatibility. Its objects can be deserialized: compare enum values as strings/read properties, do not call methods or assume original runtime types.
+- Use `Get-PowerShellExecutable` for build children to keep the caller's edition. Scripts staged into installed Windows use built-in 5.1; that is a separate environment.
+- Use `Invoke-Native` for builder native operations. Do not redirect native stderr directly with `2>$null` / `2>&1` under Stop semantics in 5.1: ordinary progress can become a terminating PowerShell error. Keep numeric status/results separate from log output, inspect exit codes, reject NUL arguments and retain bounded registry timeouts/closed stdin.
+- Validate absolute owned offline targets before recursive cleanup. Scratch helpers reject redirected/mounted directories. Core's existing offline WinSxS cmd fallback is a separate legacy path, not evidence all recursion shares those helpers. Do not build deletion commands by enumerating paths in one shell and interpolating them into another.
+- New dependency versions stay project-local with official provenance and checksum updates. Do not install/update host DISM/ADK/PowerShell/.NET/modules or poll release feeds on every app launch.
+
+## Change locations and contracts
+
+| Change | Update |
 |---|---|
-| Registry tweak | [`data/tweaks.psd1`](data/tweaks.psd1): add a line to a group, or a new group with a `When` flag |
-| New preset flag | `Get-PresetFlagNames`, `Resolve-BuildPreset` and `Get-PresetFlagSection` in `lib/tiny11utils.psm1`, all four `presets/*.json`, and `Get-GuiFlagInfo` (label and hint) in `lib/tiny11gui.psm1` |
-| New builder parameter | Both builders' `param()` blocks and comment help, `ConvertTo-GuiBuildRequest`, a control in `Show-Tiny11BuilderForm`, and the README option tables |
-| App removed by default | [`removePackage.txt`](removePackage.txt): a prefix, under the right `# ---` section. No optional utilities and no protected packages (the tests check both). |
-| Optional app (`-Keep`/`-Remove`) | `Get-OptionalUtilities` |
-| Answer-file behaviour | `New-UnattendXml`. The tests hold an allow-list of valid settings per pass, so extend it deliberately. |
-| Build step shared by both builders | a stage function in `lib/tiny11utils.psm1` (`Invoke-*Stage`, `Export-FinalInstallImage`, `New-Tiny11Iso`) |
-| GUI | `lib/tiny11gui.psm1`: pure logic in the "Pure helpers" region (unit-tested), controls in `Show-Tiny11BuilderForm` |
+| Registry policy/group | `data/tweaks.psd1`, documented policy path/edition limits, group When/opt-out, meaningful scope checks; regenerate TWEAKS |
+| Preset flag | `Get-PresetFlagNames`, preset section/resolution/JSON helpers, all four `presets/*.json`, GUI flag description/state/control and generated matrix |
+| New builder parameter | Relevant builder param/help blocks, validation/orchestration, GUI translation/control **if exposed**, README options and project guide |
+| Default app prefix | `removePackage.txt`; preserve optional-utility/protected-package rules and test actual inventory matching |
+| Optional app defaults | `Get-OptionalUtilities` and resolver; update GUI/APPS and test Keep/Remove precedence |
+| Source selection / optical metadata | `lib/tiny11media.psm1`; keep first-use no-mount/no-download path, bounded XML and actual edition authority |
+| Native/registry/cleanup shared behavior | `lib/tiny11utils.psm1`, callers in both makers; exercise real or meaningful failure fixtures for the changed contract |
+| Image exports / metadata | Export helpers/guard; preserve data, alternate streams, security/times/hard links, integrity and actual source fields; avoid raw XML/header edits |
+| Answer files | `New-UnattendXml`; update the allow-list only for verified Windows Setup settings, plus generated x64/ARM64 references |
+| GUI / progress | `lib/tiny11gui.psm1`, state/request/tail/timing contracts; explicit stage records remain compatible; render changed visible tabs |
+| Payload / browser hooks | Generated SetupComplete/FirstLogon helpers, files under payload/Browsers, option validation/GUI and their READMEs; execute on target, not host |
+| Studied references | Catalog + source-only sync + reviewed revision/diff/adoption record; preserve local modified/detached/divergent checkouts |
+| Current state / evidence | WORKING_NOTES, affected detailed guide, VERIFICATION, dated compact evidence and CHANGELOG |
 
-## Before you open a pull request
+## Generated artifacts
+
+Run `scripts/update-generated.ps1` after changing the catalog, app/preset definitions, answer generator, exported functions or emitted Markdown. It owns **docs/TWEAKS.md**, **docs/APPS.md**, **autounattend.xml**, **autounattend-arm64.xml**, **lib/tiny11utils.psd1** and **lib/tiny11gui.psd1**. Edit the source/generator, not the output alone. `-Check` reports stale output without rewriting it. A Markdown-only generator change should not alter answer XML/module manifests.
+
+## Appropriate validation
 
 ```powershell
-.\scripts\update-generated.ps1    # docs/TWEAKS.md, docs/APPS.md, reference answer files, manifests
-.\scripts\parse-check.ps1         # everything parses, every command resolves
-.\scripts\test-core-helpers.ps1   # ~1,750 checks, including the GUI (no admin rights, no ISO)
-.\scripts\linter.ps1              # PSScriptAnalyzer
-.\scripts\update-screenshots.ps1  # only if the window changed
+.\scripts\update-generated.ps1
+.\scripts\parse-check.ps1
+.\scripts\test-core-helpers.ps1
+.\scripts\test-media-progress.ps1
+.\scripts\test-export-pipeline.ps1
+.\scripts\update-generated.ps1 -Check
+.\scripts\linter.ps1
 ```
 
-CI runs the first four on Windows PowerShell 5.1 and fails when a generated file is stale.
+The [verification guide](docs/VERIFICATION.md#running-development-checks) gives explicit commands for both shells and explains what each test proves. Core checks include catalog/presets, answer-file allow-lists, mock build stages, native/registry failure guards and the actual GUI/launcher driven by a fake builder. Media/export tests are fresh real small file fixtures without a Windows mount or complete install. CI runs both shells, plus generated freshness/lint in 5.1 and XML/JSON validation; it never services a full source Windows ISO.
 
-The tests never run a real build. When you change build behaviour:
+Run the checks relevant to the change; broaden when new failures/change scope justify it. For documentation-only work, check claims/links, generated freshness and whitespace rather than repeatedly launching a 20-minute build. For changed servicing/installation behavior, report actual source/options/revision and saved-image verification; if no full/VM test was done, state that limitation. The historical full builds at `7aa45d5` do not validate all later changes. Do not require or imply a destructive live-host test to make a documentation change reviewable.
 
-- run a real build in a VM (a dry run first, then a full build), or from the GUI;
-- attach the `tiny11.iso.json` manifest, or name the Windows build you tested, in the pull request.
+GUI-only hooks are `-PreviewPath`/`-PreviewTab` (window bitmap, not screen grab), `-AutoRun Build` with `-BuilderOverride scripts\fixtures\fake-builder.ps1` / `-Quiet`, and `-InitialState`. Update screenshots only when the visible window changes; the documentation refresh does not change controls.
 
-### Testing the GUI without a build
+## Fork study, history and publishing
 
-`Show-Tiny11BuilderForm` has three hooks for tests:
+Reference source lives under ignored `repos/`; the tracked catalog fixes URLs/branches. Use `scripts/sync-reference-repos.ps1` to clone/fetch/fast-forward source, preserve user edits/branch state and save a dated audit. Do not execute reference installers/workflows. Compare to the refreshed original, credit useful ideas and document rejected behavior that would change our product contract. Do not add all cloned Git histories/binaries to the application repository.
 
-- `-PreviewPath` / `-PreviewTab` render a tab to a PNG with `DrawToBitmap`. This is window-only
-  rendering, never a screen grab.
-- `-AutoRun Build` together with `-BuilderOverride scripts\fixtures\fake-builder.ps1` and `-Quiet`
-  drives a complete build through the real window and launcher. The fixture only prints a log;
-  it never touches the system.
-- `-InitialState` pre-fills the window from a state object (`Get-GuiDefaultState`).
-
-## Studying forks
-
-Reference forks live in `repos/`, which is git-ignored. Clone new ones as `repos/<owner>_<name>`.
-Credit the source of any idea you port in the commit message and in `CHANGELOG.md`.
-
-## History
-
-`main` keeps the full upstream history. Please send focused commits with clear messages rather than
-large squashes, so every change stays traceable back to the original project.
+`main` retains the original history followed by the user's changes. Here `upstream` points to **NairoDorian/tiny11builder_2026**; ntdevlabs is a studied original, not the push target. Commit/push was authorized in this session. Keep commits focused and describe concrete behavior/validation/limits; never claim a release or successful installation solely because CI passes. Keep version labels unchanged until an intentional release decision.

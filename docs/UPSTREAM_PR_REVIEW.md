@@ -1,6 +1,8 @@
-# Upstream PR review — 2026-10-04
+# Upstream PR review — October 4–5, 2026
 
-Reviewed the current patches of [#623](https://github.com/ntdevlabs/tiny11builder/pull/623), [#628](https://github.com/ntdevlabs/tiny11builder/pull/628) and [#622](https://github.com/ntdevlabs/tiny11builder/pull/622). All three were open and unmerged when checked. These changes are adaptations to our shared helpers/catalog; the upstream scripts were not substituted for our builders. The compact [audit](verification/2026-10-04/upstream-pr-audit.json) records the inspected files and decisions.
+This is a **dated, revision-pinned review**, not a live PR-state feed. All four adaptations are in application commit `2ae045d`; #623/#628/#622 first landed in `cebf4cd`. [WORKING_NOTES.md](WORKING_NOTES.md) and [PROJECT_GUIDE.md](PROJECT_GUIDE.md) record the current app state; [VERIFICATION.md](VERIFICATION.md) consolidates latest checks/CI and their limits. The complete benchmark outputs predate these adaptations; no latest-code full ISO/VM install is implied. The later [21-reference review](REFERENCE_REVIEW.md) records compatible additional safeguards and excluded behavior.
+
+Reviewed the patches as of 2026-10-04 of [#623](https://github.com/ntdevlabs/tiny11builder/pull/623), [#628](https://github.com/ntdevlabs/tiny11builder/pull/628) and [#622](https://github.com/ntdevlabs/tiny11builder/pull/622). All three were open and unmerged when checked. These changes are adaptations to our shared helpers/catalog; the upstream scripts were not substituted for our builders. The compact [audit](verification/2026-10-04/upstream-pr-audit.json) records the inspected files and decisions.
 
 | PR | Change adopted here | Existing behavior retained |
 |---|---|---|
@@ -28,11 +30,11 @@ Real file-only fixtures cover LZX, XPRESS and solid LZMS sources and both standa
 
 The two complete Windows 26H2 benchmark builds described in [PERFORMANCE.md](PERFORMANCE.md) ran at commit `7aa45d5aa88e5c2bab9a9df692fe51404357c8ce`, before these PR adaptations. The 6,229,929,984-byte ISO described by the historical reports was built before the new policy entries. Its recorded retained path was absent at the follow-up check; source ISO and compact verification summaries remain. The current PR adaptations are regression-tested with fresh small fixtures; no new full build or VM installation was performed for them. All work targets project/offline image files; live Windows settings remain read-only.
 
-Final local checks: PowerShell 7 **1,865 passed**, PowerShell 5.1 **1,863 passed**, no failures; **129 real WIM/ESD checks** and **23 media/progress checks** per shell. Parser/command resolution, generated-file freshness, PSScriptAnalyzer and Git whitespace checks passed. [Saved check summary](verification/2026-10-04/post-review-verification.json).
+October 4 checks for the #623/#628/#622 adaptation revision: PowerShell 7 **1,865 passed**, PowerShell 5.1 **1,863 passed**, no failures; **129 real WIM/ESD checks** and **23 media/progress checks** per shell. Parser/command resolution, generated-file freshness, PSScriptAnalyzer and Git whitespace checks passed. [Saved check summary](verification/2026-10-04/post-review-verification.json).
 
 ## PR #604: early ISO writer preparation — 2026-10-05
 
-[#604](https://github.com/ntdevlabs/tiny11builder/pull/604) remains open and unmerged at head `bdb8eb809217dff1237426d76df56ad49cbae772`. Its useful idea is to obtain Oscdimg before lengthy image processing and retain the download, avoiding a late internet failure at the mastering step. [Exact patch and revision audit](verification/2026-10-05/pr604-audit.json).
+[#604](https://github.com/ntdevlabs/tiny11builder/pull/604) was open and unmerged when checked 2026-10-05 at head `bdb8eb809217dff1237426d76df56ad49cbae772`. Its useful idea is to obtain Oscdimg before lengthy image processing and retain the download, avoiding a late internet failure at the mastering step. [Exact patch and revision audit](verification/2026-10-05/pr604-audit.json).
 
 We apply the idea through the shared module in **both** standard and Core builders. Real builds initialize the tool immediately after prerequisites and before resolving/attaching/copying the source. Dry runs continue to perform lookup without downloading. Final ISO creation receives the prepared executable path; if it disappears, mastering fails before deleting an existing output rather than attempting a surprise late download. Existing ADK, user-supplied and PATH precedence remains intact, and architecture is resolved before lookup (the proposed upstream ordering referenced the architecture variable before it was assigned).
 
