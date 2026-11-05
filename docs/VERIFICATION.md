@@ -21,7 +21,7 @@ After the upstream WinUI 0.2 reimplementation (see [UPSTREAM_MERGE_PLAN.md](UPST
 
 | Check | Windows PowerShell 5.1 | PowerShell 7 |
 |---|---:|---:|
-| Core helpers / catalog / answer files / mocked stages / fake GUI / help & GUI-contract audits (incl. the 3 ISO-download-cancel GUI-source checks) | 2,090 passed, 0 failed | 2,092 passed, 0 failed |
+| Core helpers / catalog / answer files / mocked stages / fake GUI / help & GUI-contract audits (incl. the 6 ISO-download Cancel/Pause GUI-source checks) | 2,093 passed, 0 failed | 2,095 passed, 0 failed |
 | ISO recognition, resumable download, assisted hand-off, fully automatic handshake (offline fake servers) | 89 passed | 89 passed |
 | Real WIM/ESD export fixtures | 129 passed | 129 passed |
 | ISO metadata / progress / timing fixtures | 23 passed | 23 passed |

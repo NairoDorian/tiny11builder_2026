@@ -1386,11 +1386,17 @@ $interactive = [regex]::Matches($guiText, '(?m)^\s*\$(\w+)\s*=\s*New-UiControl -
 $helped = @([regex]::Matches($guiText, 'SetToolTip\(\$(\w+)') | ForEach-Object { $_.Groups[1].Value }) + @([regex]::Matches($guiText, '(?m)^\s*,?@\(\$(\w+),') | ForEach-Object { $_.Groups[1].Value })
 $noHelp = @($interactive | Where-Object { $helped -notcontains $_ } | Select-Object -Unique)
 Check "every interactive GUI control has mouse-over help ($($noHelp -join ', '))" ($noHelp.Count -eq 0)
-# ISO download cancel: a hidden-by-default button, shown only while a download
-# worker runs and wired to the same safe stop path as the toggle buttons.
+# ISO download stop UI: while any download worker runs (automatic or pasted
+# link), a Cancel and a Pause button appear and 'Download from link...' keeps
+# its text. Cancel stops AND deletes the partial file; Pause stops and keeps it.
 Check 'ISO download cancel button exists, hidden by default' ($guiText -match '\$btnCancelIso = New-UiControl -Type Button[^\r\n]*Visible = \$false')
-Check 'cancel button shown only during downloads'            ($guiText -match '\$btnCancelIso\.Visible = \(\$Kind -eq ''download''\)')
-Check 'cancel button wired to the safe stop path'            ($guiText -match '\$btnCancelIso\.Add_Click[\s\S]*?& \$stopIsoWorker ''download''')
+Check 'ISO download pause button exists, hidden by default' ($guiText -match '\$btnPauseIso = New-UiControl -Type Button[^\r\n]*Visible = \$false')
+Check 'cancel and pause appear only during downloads' ($guiText -match '\$btnCancelIso\.Visible = \(\$Kind -eq ''download''\)' -and $guiText -match '\$btnPauseIso\.Visible = \(\$Kind -eq ''download''\)')
+Check 'download-from-link button never changes its text' ($guiText -notmatch '\$btnDownloadLink\.Text\s*=')
+$pauseHandler = [regex]::Match($guiText, '(?s)\$btnPauseIso\.Add_Click\(.*?(?=\$btnCancelIso\.Add_Click)').Value
+Check 'pause stops the download and keeps the partial file' ($pauseHandler -match '& \$stopIsoWorker ''download''' -and $pauseHandler -notmatch 'Remove-Item')
+$cancelHandler = [regex]::Match($guiText, '(?s)\$btnCancelIso\.Add_Click\(.*?(?=# Drag an \.iso)').Value
+Check 'cancel stops the download and deletes the partial file' ($cancelHandler -match '& \$stopIsoWorker ''download''' -and $cancelHandler -match 'Remove-Item -LiteralPath')
 $readyChecks = @(Test-GuiBuildRequest -State (Get-GuiDefaultState) | Where-Object { $_.Message -match 'oscdimg|Offline-ready|wimlib' })
 Check 'Checks report offline tool readiness'  ($readyChecks.Count -eq 1)
 

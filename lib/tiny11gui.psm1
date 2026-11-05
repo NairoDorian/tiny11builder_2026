@@ -984,13 +984,17 @@ function Show-Tiny11BuilderForm {
     [void]$cbLanguage.Items.Add('(automatic)')
     foreach ($l in (Get-KnownWindowsIsoLanguages)) { [void]$cbLanguage.Items.Add($l) }
     $btnAutoDownload = New-UiControl -Type Button -Parent $g1 -X 386 -Y 85 -W 170 -H 26 -Text 'Download latest ISO'
-    # Cancel appears only while a download runs (wrong language, changed mind):
-    # stopping keeps the partial file, which resumes with the same or a fresh link.
+    # While a download runs - started automatically or from a pasted link - two
+    # buttons appear here and 'Download from link...' keeps its text:
+    #   Pause  - stop but KEEP the partial file; the same ISO resumes later.
+    #   Cancel - stop and DELETE the partial file (confirmation asked).
     $btnCancelIso = New-UiControl -Type Button -Parent $g1 -X 560 -Y 85 -W 88 -H 26 -Text 'Cancel' -Props @{ Visible = $false }
-    $null = New-UiControl -Type Label -Parent $g1 -X 650 -Y 90 -W 206 -H 20 -Text 'or drop an .iso here' -Props @{ ForeColor = $muted }
+    $btnPauseIso = New-UiControl -Type Button -Parent $g1 -X 654 -Y 85 -W 88 -H 26 -Text 'Pause' -Props @{ Visible = $false }
+    $null = New-UiControl -Type Label -Parent $g1 -X 650 -Y 58 -W 206 -H 20 -Text 'or drop an .iso here' -Props @{ ForeColor = $muted }
     $tip.SetToolTip($cbLanguage, "Language of the official ISO for 'Download latest ISO'. '(automatic)' uses the language of this Windows (English is the fallback). The choice is confirmed against Microsoft's server when the download starts.")
-    $tip.SetToolTip($btnAutoDownload, "Fully automatic, no browser: the app asks Microsoft's download service for the current Windows 11 release in the chosen language and downloads the official ISO here (resumable, SHA-256 checked, into your Downloads folder). Existing files are never overwritten. A Cancel button appears next to it while the download runs.")
-    $tip.SetToolTip($btnCancelIso, 'Stop the running ISO download (started here or from a pasted link). The partial file is kept and resumes when you download the same ISO again - also with a fresh link or a fresh automatic run.')
+    $tip.SetToolTip($btnAutoDownload, "Fully automatic, no browser: the app asks Microsoft's download service for the current Windows 11 release in the chosen language and downloads the official ISO here (resumable, SHA-256 checked, into your Downloads folder). Existing files are never overwritten. While it runs, Pause (keep the partial file) and Cancel (delete it) appear next to the language list.")
+    $tip.SetToolTip($btnCancelIso, 'Stop the running ISO download (started here or from a pasted link) and DELETE its partial file: it cannot be resumed afterwards. Confirmation is asked; choose Pause instead to keep the file.')
+    $tip.SetToolTip($btnPauseIso, 'Stop the running ISO download (started here or from a pasted link) but KEEP its partial file: downloading the same ISO again resumes where it stopped - also with a fresh link or a fresh automatic run. Nothing is lost, so no confirmation is needed.')
     $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 120 -W 120 -Text 'Edition:'
     $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 116 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
     $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 145 -W 712 -H 16 -Text 'Load editions reads build, architecture, language and size straight from the ISO (no mount, no cache).' -Props @{ ForeColor = $muted }
@@ -1194,7 +1198,7 @@ function Show-Tiny11BuilderForm {
         ,@($btnBrowseIso, 'Pick a Windows 11 ISO on this PC. Opens in the folder of the current ISO, or in Downloads.')
         ,@($btnLoadEditions, 'Read the editions (Home, Pro, ...), build, architecture and language straight from the ISO without mounting it. Afterwards the ISO is compared with Microsoft''s published hashes in the background when online.')
         ,@($btnOpenPage, 'Opens Microsoft''s official Windows 11 page (x64 or ARM64, like this PC) in your browser. Pick the ISO and language there and click Download: this window notices the finished ISO in your Downloads folder (or a link you copy, which it then downloads itself) and selects, loads and verifies it automatically. Click again to stop waiting.')
-        ,@($btnDownloadLink, 'Paste the direct .iso link copied from Microsoft''s page: the download runs here with progress, resumes after interruptions and is SHA-256-checked. Click again to stop - or use the Cancel button that appears while a download runs (the partial file is kept).')
+        ,@($btnDownloadLink, 'Paste the direct .iso link copied from Microsoft''s page: the download runs here with progress, resumes after interruptions and is SHA-256-checked. While it runs, Pause (keep the partial file for resume) and Cancel (delete it) appear next to the language list; this button keeps its text.')
         ,@($btnVerifyIso, 'Compute the ISO''s SHA-256 and compare it with Microsoft''s published list for the current Windows 11 release. Optional and informational: building never needs it, online or offline.')
         ,@($lblAuth, 'Result of the optional authenticity check. "Not in the current list" usually means an older or Insider release, not a fake; the build is never blocked.')
         ,@($cbEdition, 'The edition to build. It becomes the only image (index 1) in the new ISO. Windows 11 Pro is preselected when present.')
@@ -1780,20 +1784,22 @@ function Show-Tiny11BuilderForm {
         $ui.IsoWorker = $null
         $isoProgress.Visible = $false
         $btnCancelIso.Visible = $false
-        $btnDownloadLink.Text = 'Download from link...'
+        $btnPauseIso.Visible = $false
         $btnVerifyIso.Text = 'Check authenticity'
     }
     $startIsoWorker = {
         param([string]$Kind, [scriptblock]$Body, [object[]]$Arguments, [string]$Path)
         & $stopIsoWorker
-        $sync = [hashtable]::Synchronized(@{ Percent = 0; Text = ''; Result = $null; Error = $null; Phase = '' })
+        $sync = [hashtable]::Synchronized(@{ Percent = 0; Text = ''; Result = $null; Error = $null; Phase = ''; PartFile = '' })
         $ps = [PowerShell]::Create()
         [void]$ps.AddScript($Body).AddArgument($Script:GuiRepoRoot).AddArgument($sync)
         foreach ($argument in $Arguments) { [void]$ps.AddArgument($argument) }
         $ui.IsoWorker = @{ Kind = $Kind; PowerShell = $ps; Handle = $ps.BeginInvoke(); Sync = $sync; Path = $Path }
         $isoProgress.Value = 0; $isoProgress.Visible = ($Kind -ne 'tools')
-        # The Cancel button only exists while a download can be stopped.
+        # Pause/Cancel only exist while a download can be stopped; the two start
+        # buttons keep their texts.
         $btnCancelIso.Visible = ($Kind -eq 'download')
+        $btnPauseIso.Visible = ($Kind -eq 'download')
         $isoTimer.Start()
     }
     $startVerify = {
@@ -1900,7 +1906,7 @@ function Show-Tiny11BuilderForm {
         })
     $btnOpenPage.Add_Click({
             if ($ui.Handoff) { & $stopHandoff 'Stopped waiting for Microsoft''s download.'; return }
-            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') { Invoke-PopupInfo -Title 'Download running' -Message 'A download is already running.'; return }
+            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') { Invoke-PopupInfo -Title 'Download running' -Message "A download is already running.`n`nPause (keep the partial file) and Cancel (delete it) are next to the language list."; return }
             $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
             $folder = Get-UserDownloadsFolder
             $clipboardAtStart = try { [System.Windows.Forms.Clipboard]::GetText() } catch { '' }
@@ -1923,10 +1929,10 @@ function Show-Tiny11BuilderForm {
             }
         })
     $btnDownloadLink.Add_Click({
+            # This button never changes its text: while a download runs, the
+            # Pause/Cancel buttons next to the language list are the stop UI.
             if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') {
-                if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again (a fresh link to the same file also works).') {
-                    & $stopIsoWorker 'download'; $lblAuth.Text = 'Download stopped; the partial file is kept for resume.'
-                }
+                if (-not $ui.Quiet) { Invoke-PopupInfo -Title 'Download running' -Message "A download is already running.`n`nPause stops it and keeps the partial file for resume; Cancel stops it and deletes the file. Both buttons are next to the language list." }
                 return
             }
             if ($ui.IsoWorker) { & $stopIsoWorker 'verify' }
@@ -1937,13 +1943,16 @@ function Show-Tiny11BuilderForm {
         })
     $startDownload = {
         param([string]$url, [string]$folder, [string]$sha)
-        $btnDownloadLink.Text = 'Stop download'
         $lblAuth.Text = 'Connecting to Microsoft...'; $lblAuth.ForeColor = $muted
         & $startIsoWorker 'download' {
                 param($root, $sync, $url, $folder, $sha)
                 $ErrorActionPreference = 'Stop'
                 try {
                     Import-Module (Join-Path $root 'lib\tiny11download.psm1') -DisableNameChecking
+                    # Recorded for Cancel: where this download writes its partial file.
+                    $sync.Phase = 'resolve'
+                    $sync.PartFile = Join-Path ([IO.Path]::GetFullPath($folder)) ((Get-IsoFileNameFromUrl -Uri (Test-MicrosoftIsoUrl -Url $url)) + '.part')
+                    $sync.Phase = 'download'
                     $sync.Result = Save-WindowsIsoDownload -Url $url -Destination $folder -ExpectedSha256 $sha -OnProgress {
                         param($p)
                         $view = Format-IsoDownloadProgress -Progress $p
@@ -1958,9 +1967,7 @@ function Show-Tiny11BuilderForm {
     # chosen language and downloads the official ISO (SHA-256 checked).
     $btnAutoDownload.Add_Click({
             if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') {
-                if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again.') {
-                    & $stopIsoWorker 'download'; $lblAuth.Text = 'Download stopped; the partial file is kept for resume.'
-                }
+                if (-not $ui.Quiet) { Invoke-PopupInfo -Title 'Download running' -Message "A download is already running.`n`nPause stops it and keeps the partial file for resume; Cancel stops it and deletes the file. Both buttons are next to the language list." }
                 return
             }
             if ($ui.IsoWorker) { Invoke-PopupInfo -Title 'Busy' -Message 'Another ISO task (authenticity check or tool preparation) is running. Stop it first.'; return }
@@ -1972,7 +1979,6 @@ function Show-Tiny11BuilderForm {
         })
     $startAutoDownload = {
         param([string]$arch, [string]$language, [string]$culture, [string]$folder)
-        $btnDownloadLink.Text = 'Stop download'
         $lblAuth.Text = 'Asking Microsoft for the current Windows 11 ISO...'; $lblAuth.ForeColor = $muted
         & $startIsoWorker 'download' {
                 param($root, $sync, $arch, $language, $culture, $folder)
@@ -1983,6 +1989,8 @@ function Show-Tiny11BuilderForm {
                     $languages = Get-OfficialWindowsIsoLanguages -Architecture $arch -OnStatus { param($t) $sync.Text = $t }
                     $sync.Text = 'Choosing the ISO language...'
                     $link = Get-OfficialWindowsIsoDownloadLink -Languages $languages -Language $language -Culture $culture
+                    # Recorded for Cancel: where this download writes its partial file.
+                    $sync.PartFile = Join-Path ([IO.Path]::GetFullPath($folder)) "$($link.FileName).part"
                     $sync.Phase = 'download'
                     $sync.Text = "Downloading $($link.FileName) (official Microsoft ISO)..."
                     $sync.Result = Save-WindowsIsoDownload -Url $link.Url -Destination $folder -ExpectedSha256 $link.Sha256 -OnProgress {
@@ -1994,17 +2002,46 @@ function Show-Tiny11BuilderForm {
                 } catch { $sync.Error = $_.Exception.Message }
             } @($arch, $language, $culture, $folder) $folder
     }
-    # The visible cancel path for a running download (wrong language, changed
-    # mind). Stopping keeps the partial file; a deliberate cancel shows no
+    # Pause: stop the worker but KEEP the partial file; the same ISO (or a fresh
+    # link to it) resumes where it stopped. Nothing is lost, so no confirmation.
+    $btnPauseIso.Add_Click({
+            if (-not $ui.IsoWorker -or $ui.IsoWorker.Kind -ne 'download') { return }
+            & $stopIsoWorker 'download'
+            $lblAuth.Text = 'Download paused; the partial file is kept and resumes when the same ISO is downloaded again.'
+            $lblAuth.ForeColor = $muted
+        })
+    # Cancel: a true cancel - stop the worker AND delete its partial file(s).
+    # Confirmation is asked because it is final; a deliberate stop shows no
     # error popup afterwards (the worker is gone before the timer can complain).
     $btnCancelIso.Add_Click({
             if (-not $ui.IsoWorker -or $ui.IsoWorker.Kind -ne 'download') { return }
-            if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again.') {
-                $phase = [string]$ui.IsoWorker.Sync.Phase
-                & $stopIsoWorker 'download'
-                $lblAuth.Text = if ($phase -eq 'resolve') { 'Download cancelled; no file had been written yet.' }
-                                 else { 'Download cancelled; the partial file is kept for resume.' }
+            $sync = $ui.IsoWorker.Sync
+            $part = [string]$sync.PartFile
+            $exists = $part -and (Test-Path -LiteralPath $part)
+            $message = if ($exists) {
+                "Stop the download and DELETE its partial file?`n`n$part`n`nIt cannot be resumed afterwards. Choose Pause instead to keep it for resume."
+            } else {
+                'Stop the download? No partial file has been written yet.'
+            }
+            if (-not (Invoke-PopupYesOrNo -Title 'Cancel the download?' -Message $message)) { return }
+            & $stopIsoWorker 'download'
+            if (-not $exists) { $lblAuth.Text = 'Download cancelled; no partial file had been written.'; $lblAuth.ForeColor = $muted; return }
+            # The worker's finally blocks released the file when Stop returned;
+            # retry briefly in case the handle is still closing.
+            $deleted = $false
+            foreach ($try in 1..5) {
+                try {
+                    foreach ($file in @($part, "$part.json")) { if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop } }
+                    $deleted = $true
+                } catch { Start-Sleep -Milliseconds 200 }
+                if ($deleted) { break }
+            }
+            if ($deleted) {
+                $lblAuth.Text = 'Download cancelled; the partial file was deleted.'
                 $lblAuth.ForeColor = $muted
+            } else {
+                $lblAuth.Text = "Download cancelled; the partial file could not be deleted (still in use) - delete it yourself: $part"
+                $lblAuth.ForeColor = $danger
             }
         })
     # Drag an .iso from Explorer anywhere onto the window. WinForms delivers the
