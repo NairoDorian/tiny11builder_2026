@@ -2,6 +2,13 @@
 
 ## Unreleased - getting and recognizing the ISO, offline readiness, GUI help (2026-11-05)
 
+- **Fully automatic download — no browser at all** (GUI *Download latest ISO* + language dropdown, `tiny11iso.ps1 -Auto [-Language <language>] [-Architecture x64|arm64] [-Destination]`):
+  - the app itself performs the same session handshake as Microsoft's download page (page → session tags → mdt.js → connector API) and asks Microsoft's own download API for the current release's direct ISO link;
+  - the language dropdown pre-fills with the 38 languages the page has offered for years; *automatic* uses this Windows' language (English fallback), and the live language list at download time always wins;
+  - a dedicated **Cancel** button appears next to the language list while a download runs (wrong language, changed mind): stopping keeps the partial file, which resumes with the same or a fresh link, and a deliberate cancel shows no error popup (also stops *Download from link...*; 3 new GUI-source checks);
+  - x64 or ARM64 like this PC; the resolved link is fed into the existing downloader (resumable, Microsoft hosts only, SHA-256 checked against the value Microsoft publishes, never overwrites) and the finished ISO is selected, editions loaded and recognized automatically;
+  - refusals and network failures surface as clear advice naming the two manual alternatives (assisted *Get Windows 11...* / *Download from link...*);
+  - tested without touching Microsoft: a fake catalog server replays the whole handshake (page/tags/mdt/session/connector), 28 new checks (pure helpers, SKU/download-type selection, referrer and non-Windows client presentation, host allow-list, error paths, end-to-end download through the resolved link).
 - **Assisted near one-click download** (GUI *Get Windows 11...*, `tiny11iso.ps1 -Get`):
   - the app opens Microsoft's page in the browser; the person chooses the language and clicks *Download*;
   - the app then picks up the finished ISO from the real Downloads folder (or a Microsoft link copied after the click, which it downloads itself), and selects, loads and verifies it automatically;

@@ -7,7 +7,10 @@
     of tiny11maker.ps1 / tiny11Coremaker.ps1:
 
       Source           ISO or drive, edition (with build/arch/language/size),
-                       Standard or Core builder, output ISO, work drive,
+                       three ways to get the ISO from Microsoft - fully
+                       automatic (language dropdown, no browser), assisted
+                       (browser) or from a copied link - plus authenticity
+                       check, Standard or Core builder, output ISO, work drive,
                        compression, quick build, no-"press any key"
       Preset/features  preset + every preset flag as a checkbox; save/load presets
       Apps             the removal list (checked = removed), optional utilities,
@@ -133,6 +136,7 @@ function Get-GuiDefaultState {
         Index              = 0
         EditionName        = ''
         EditionSizeBytes   = [long]0
+        DownloadLanguage   = ''
         Builder            = 'Standard'
         Preset             = 'Default'
         PresetFile         = ''
@@ -962,7 +966,7 @@ function Show-Tiny11BuilderForm {
     $tip.SetToolTip($btnLoadProfile, 'Load all settings from a profile file (passwords are never saved).')
 
     #================ Tab 1: Source ================
-    $g1 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 6 -W 868 -H 206 -Text 'Windows 11 image'
+    $g1 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 6 -W 868 -H 223 -Text 'Windows 11 image'
     $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 26 -W 120 -Text 'ISO file or drive:'
     $cbSource = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 23 -W 480 -Props @{ DropDownWidth = 712 }
     foreach ($d in (Get-SetupMediaDrives)) { [void]$cbSource.Items.Add($d) }
@@ -974,15 +978,27 @@ function Show-Tiny11BuilderForm {
     $btnOpenPage = New-UiControl -Type Button -Parent $g1 -X 140 -Y 54 -W 170 -H 26 -Text 'Get Windows 11...' -Props @{ Font = $bold }
     $btnDownloadLink = New-UiControl -Type Button -Parent $g1 -X 316 -Y 54 -W 170 -H 26 -Text 'Download from link...'
     $btnVerifyIso = New-UiControl -Type Button -Parent $g1 -X 492 -Y 54 -W 150 -H 26 -Text 'Check authenticity'
-    $null = New-UiControl -Type Label -Parent $g1 -X 650 -Y 58 -W 206 -H 20 -Text 'or drop an .iso here' -Props @{ ForeColor = $muted }
-    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 92 -W 120 -Text 'Edition:'
-    $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 89 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
-    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 118 -W 712 -H 30 -Text 'Load editions reads build, architecture, language and size straight from the ISO (no mount, no cache).' -Props @{ ForeColor = $muted }
-    $lblAuth = New-UiControl -Type Label -Parent $g1 -X 140 -Y 150 -W 712 -H 32 -Text 'Authenticity: not checked yet (optional; never required to build).' -Props @{ ForeColor = $muted }
-    $isoProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 184 -W 712 -H 10 -Props @{ Visible = $false; Minimum = 0; Maximum = 100 }
-    $editionProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 196 -W 712 -H 6 -Props @{ Visible = $false; Style = 'Marquee' }
+    # Fully automatic: no browser, the app resolves the official link itself.
+    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 90 -W 125 -Text 'Automatic:'
+    $cbLanguage = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 86 -W 240 -Props @{ DropDownStyle = 'DropDownList'; DropDownWidth = 300 }
+    [void]$cbLanguage.Items.Add('(automatic)')
+    foreach ($l in (Get-KnownWindowsIsoLanguages)) { [void]$cbLanguage.Items.Add($l) }
+    $btnAutoDownload = New-UiControl -Type Button -Parent $g1 -X 386 -Y 85 -W 170 -H 26 -Text 'Download latest ISO'
+    # Cancel appears only while a download runs (wrong language, changed mind):
+    # stopping keeps the partial file, which resumes with the same or a fresh link.
+    $btnCancelIso = New-UiControl -Type Button -Parent $g1 -X 560 -Y 85 -W 88 -H 26 -Text 'Cancel' -Props @{ Visible = $false }
+    $null = New-UiControl -Type Label -Parent $g1 -X 650 -Y 90 -W 206 -H 20 -Text 'or drop an .iso here' -Props @{ ForeColor = $muted }
+    $tip.SetToolTip($cbLanguage, "Language of the official ISO for 'Download latest ISO'. '(automatic)' uses the language of this Windows (English is the fallback). The choice is confirmed against Microsoft's server when the download starts.")
+    $tip.SetToolTip($btnAutoDownload, "Fully automatic, no browser: the app asks Microsoft's download service for the current Windows 11 release in the chosen language and downloads the official ISO here (resumable, SHA-256 checked, into your Downloads folder). Existing files are never overwritten. A Cancel button appears next to it while the download runs.")
+    $tip.SetToolTip($btnCancelIso, 'Stop the running ISO download (started here or from a pasted link). The partial file is kept and resumes when you download the same ISO again - also with a fresh link or a fresh automatic run.')
+    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 120 -W 120 -Text 'Edition:'
+    $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 116 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
+    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 145 -W 712 -H 16 -Text 'Load editions reads build, architecture, language and size straight from the ISO (no mount, no cache).' -Props @{ ForeColor = $muted }
+    $lblAuth = New-UiControl -Type Label -Parent $g1 -X 140 -Y 164 -W 712 -H 32 -Text 'Authenticity: not checked yet (optional; never required to build).' -Props @{ ForeColor = $muted }
+    $isoProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 201 -W 712 -H 10 -Props @{ Visible = $false; Minimum = 0; Maximum = 100 }
+    $editionProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 213 -W 712 -H 6 -Props @{ Visible = $false; Style = 'Marquee' }
 
-    $g2 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 216 -W 868 -H 96 -Text 'Builder'
+    $g2 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 233 -W 868 -H 96 -Text 'Builder'
     $rbStandard = New-UiControl -Type RadioButton -Parent $g2 -X 16 -Y 22 -W 250 -Text 'Standard  (recommended)' -Props @{ Font = $bold }
     $null = New-UiControl -Type Label -Parent $g2 -X 34 -Y 46 -W 400 -H 44 -Text 'Serviceable: Windows Update, language packs and optional features keep working. For real PCs.' -Props @{ ForeColor = $muted }
     $rbCore = New-UiControl -Type RadioButton -Parent $g2 -X 450 -Y 22 -W 250 -Text 'Core  (smallest, VM only)' -Props @{ Font = $bold }
@@ -1178,7 +1194,7 @@ function Show-Tiny11BuilderForm {
         ,@($btnBrowseIso, 'Pick a Windows 11 ISO on this PC. Opens in the folder of the current ISO, or in Downloads.')
         ,@($btnLoadEditions, 'Read the editions (Home, Pro, ...), build, architecture and language straight from the ISO without mounting it. Afterwards the ISO is compared with Microsoft''s published hashes in the background when online.')
         ,@($btnOpenPage, 'Opens Microsoft''s official Windows 11 page (x64 or ARM64, like this PC) in your browser. Pick the ISO and language there and click Download: this window notices the finished ISO in your Downloads folder (or a link you copy, which it then downloads itself) and selects, loads and verifies it automatically. Click again to stop waiting.')
-        ,@($btnDownloadLink, 'Paste the direct .iso link copied from Microsoft''s page: the download runs here with progress, resumes after interruptions and is SHA-256-checked. Click again to stop (the partial file is kept).')
+        ,@($btnDownloadLink, 'Paste the direct .iso link copied from Microsoft''s page: the download runs here with progress, resumes after interruptions and is SHA-256-checked. Click again to stop - or use the Cancel button that appears while a download runs (the partial file is kept).')
         ,@($btnVerifyIso, 'Compute the ISO''s SHA-256 and compare it with Microsoft''s published list for the current Windows 11 release. Optional and informational: building never needs it, online or offline.')
         ,@($lblAuth, 'Result of the optional authenticity check. "Not in the current list" usually means an older or Insider release, not a fake; the build is never blocked.')
         ,@($cbEdition, 'The edition to build. It becomes the only image (index 1) in the new ISO. Windows 11 Pro is preselected when present.')
@@ -1253,7 +1269,7 @@ function Show-Tiny11BuilderForm {
     foreach ($pair in $helpTexts) { if ($pair[0]) { $tip.SetToolTip($pair[0], (Format-GuiTip -Text $pair[1])) } }
 
     $ui.Controls = @{
-        Source = $cbSource; Edition = $cbEdition; EditionHint = $lblEditionHint; Standard = $rbStandard; Core = $rbCore
+        Source = $cbSource; Language = $cbLanguage; Edition = $cbEdition; EditionHint = $lblEditionHint; Standard = $rbStandard; Core = $rbCore
         Output = $tbOutput; Scratch = $cbScratch; ScratchHint = $lblScratchHint; Compress = $cbCompress; CompressHint = $lblCompress
         Fast = $chkFast; NoPrompt = $chkNoPrompt; DryRun = $chkDryRunOpt; Preset = $cbPreset; PresetState = $lblPresetState; PresetDesc = $lblPresetDesc
         KeepApps = $chkKeepApps; Apps = $lvApps; Util = $clbUtil; AppsInfo = $lblAppsInfo; Tweaks = $lvTweaks; TweakDetail = $tbTweakDetail; TweakCount = $lblTweakCount
@@ -1406,6 +1422,8 @@ function Show-Tiny11BuilderForm {
         $s = $ui.State
         $c = $ui.Controls
         $c.Source.Text = [string]$s.Source
+        & $selectCombo $c.Language ([string]$s.DownloadLanguage)
+        if ($c.Language.SelectedIndex -lt 0) { $c.Language.SelectedIndex = 0 }
         $c.Edition.Items.Clear()
         if ($s.Index) { [void]$c.Edition.Items.Add("$($s.Index): $($s.EditionName)"); $c.Edition.SelectedIndex = 0 }
         $c.Standard.Checked = $s.Builder -ne 'Core'
@@ -1761,18 +1779,21 @@ function Show-Tiny11BuilderForm {
         try { $worker.PowerShell.Stop() } catch { Write-Verbose "ISO task stop: $_" } finally { $worker.PowerShell.Dispose() }
         $ui.IsoWorker = $null
         $isoProgress.Visible = $false
+        $btnCancelIso.Visible = $false
         $btnDownloadLink.Text = 'Download from link...'
         $btnVerifyIso.Text = 'Check authenticity'
     }
     $startIsoWorker = {
         param([string]$Kind, [scriptblock]$Body, [object[]]$Arguments, [string]$Path)
         & $stopIsoWorker
-        $sync = [hashtable]::Synchronized(@{ Percent = 0; Text = ''; Result = $null; Error = $null })
+        $sync = [hashtable]::Synchronized(@{ Percent = 0; Text = ''; Result = $null; Error = $null; Phase = '' })
         $ps = [PowerShell]::Create()
         [void]$ps.AddScript($Body).AddArgument($Script:GuiRepoRoot).AddArgument($sync)
         foreach ($argument in $Arguments) { [void]$ps.AddArgument($argument) }
         $ui.IsoWorker = @{ Kind = $Kind; PowerShell = $ps; Handle = $ps.BeginInvoke(); Sync = $sync; Path = $Path }
         $isoProgress.Value = 0; $isoProgress.Visible = ($Kind -ne 'tools')
+        # The Cancel button only exists while a download can be stopped.
+        $btnCancelIso.Visible = ($Kind -eq 'download')
         $isoTimer.Start()
     }
     $startVerify = {
@@ -1809,7 +1830,14 @@ function Show-Tiny11BuilderForm {
             if ($sync.Error) {
                 $lblAuth.Text = if ($kind -eq 'download') { "Download stopped: $($sync.Error)" } else { "Authenticity: could not be checked ($($sync.Error)). The build is not affected." }
                 $lblAuth.ForeColor = if ($kind -eq 'download') { $danger } else { $muted }
-                if ($kind -eq 'download' -and -not $ui.Quiet) { Invoke-PopupError -Title 'Download stopped' -Message "$($sync.Error)`n`nAn interrupted download is kept as a .part file and resumes when you start it again with a link to the same ISO." }
+                if ($kind -eq 'download' -and -not $ui.Quiet) {
+                    $advice = if ($sync.Phase -eq 'resolve') {
+                        "No file was downloaded yet.`n`nThe assisted 'Get Windows 11...' (browser) and 'Download from link...' still work."
+                    } else {
+                        "An interrupted download is kept as a .part file and resumes when you start it again (a fresh automatic download of the same ISO also resumes)."
+                    }
+                    Invoke-PopupError -Title 'Download stopped' -Message "$($sync.Error)`n`n$advice"
+                }
                 return
             }
             if ($kind -eq 'verify') {
@@ -1925,6 +1953,60 @@ function Show-Tiny11BuilderForm {
                 } catch { $sync.Error = $_.Exception.Message }
             } @($url, $folder, $sha) $folder
     }
+    #---- Fully automatic: no browser. The app itself performs the same session
+    # handshake as Microsoft's download page, asks for the current release in the
+    # chosen language and downloads the official ISO (SHA-256 checked).
+    $btnAutoDownload.Add_Click({
+            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') {
+                if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again.') {
+                    & $stopIsoWorker 'download'; $lblAuth.Text = 'Download stopped; the partial file is kept for resume.'
+                }
+                return
+            }
+            if ($ui.IsoWorker) { Invoke-PopupInfo -Title 'Busy' -Message 'Another ISO task (authenticity check or tool preparation) is running. Stop it first.'; return }
+            if ($ui.Handoff) { & $stopHandoff $null }
+            $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+            $language = if ($cbLanguage.SelectedIndex -gt 0) { [string]$cbLanguage.SelectedItem } else { '' }
+            $culture = try { [System.Globalization.CultureInfo]::CurrentUICulture.Name } catch { '' }
+            & $startAutoDownload $arch $language $culture (Get-UserDownloadsFolder)
+        })
+    $startAutoDownload = {
+        param([string]$arch, [string]$language, [string]$culture, [string]$folder)
+        $btnDownloadLink.Text = 'Stop download'
+        $lblAuth.Text = 'Asking Microsoft for the current Windows 11 ISO...'; $lblAuth.ForeColor = $muted
+        & $startIsoWorker 'download' {
+                param($root, $sync, $arch, $language, $culture, $folder)
+                $ErrorActionPreference = 'Stop'
+                try {
+                    Import-Module (Join-Path $root 'lib\tiny11download.psm1') -DisableNameChecking
+                    $sync.Phase = 'resolve'
+                    $languages = Get-OfficialWindowsIsoLanguages -Architecture $arch -OnStatus { param($t) $sync.Text = $t }
+                    $sync.Text = 'Choosing the ISO language...'
+                    $link = Get-OfficialWindowsIsoDownloadLink -Languages $languages -Language $language -Culture $culture
+                    $sync.Phase = 'download'
+                    $sync.Text = "Downloading $($link.FileName) (official Microsoft ISO)..."
+                    $sync.Result = Save-WindowsIsoDownload -Url $link.Url -Destination $folder -ExpectedSha256 $link.Sha256 -OnProgress {
+                        param($p)
+                        $view = Format-IsoDownloadProgress -Progress $p
+                        $sync.Percent = $view.Percent
+                        $sync.Text = if ($p.Phase -eq 'verify') { $view.Text } else { "Downloading: $($view.Text)" }
+                    }
+                } catch { $sync.Error = $_.Exception.Message }
+            } @($arch, $language, $culture, $folder) $folder
+    }
+    # The visible cancel path for a running download (wrong language, changed
+    # mind). Stopping keeps the partial file; a deliberate cancel shows no
+    # error popup afterwards (the worker is gone before the timer can complain).
+    $btnCancelIso.Add_Click({
+            if (-not $ui.IsoWorker -or $ui.IsoWorker.Kind -ne 'download') { return }
+            if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again.') {
+                $phase = [string]$ui.IsoWorker.Sync.Phase
+                & $stopIsoWorker 'download'
+                $lblAuth.Text = if ($phase -eq 'resolve') { 'Download cancelled; no file had been written yet.' }
+                                 else { 'Download cancelled; the partial file is kept for resume.' }
+                $lblAuth.ForeColor = $muted
+            }
+        })
     # Drag an .iso from Explorer anywhere onto the window. WinForms delivers the
     # drop to the control under the cursor, so every container/control opts in.
     $onIsoDragEnter = {
@@ -2067,6 +2149,10 @@ function Show-Tiny11BuilderForm {
             if ($ui.Loading) { return }
             $ui.State.Compress = [string]$ui.Controls.Compress.SelectedItem
             $ui.Controls.CompressHint.Text = Get-GuiCompressionDescription $ui.State.Compress
+        })
+    $cbLanguage.Add_SelectedIndexChanged({
+            if ($ui.Loading) { return }
+            $ui.State.DownloadLanguage = if ($cbLanguage.SelectedIndex -gt 0) { [string]$cbLanguage.SelectedItem } else { '' }
         })
     $chkFast.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.Fast = $chkFast.Checked } })
     $chkNoPrompt.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.NoPrompt = $chkNoPrompt.Checked } })

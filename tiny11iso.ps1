@@ -15,6 +15,11 @@
                         (valid about 24 hours): progress, automatic resume of an
                         interrupted .part file, SHA-256 recognition. Nothing is
                         overwritten.
+      -Auto             Fully automatic, no browser: resolve the current official
+                        ISO straight from Microsoft's download service (same
+                        handshake as the download page) and download it here
+                        (resumable, SHA-256 checked). -Language picks it
+                        (default: this Windows' language, English fallback).
       -ListHashes       Print Microsoft's current language -> SHA-256 table.
       -PrepareTools     Download/verify oscdimg (and wimlib on x64) now, so later
                         builds work fully offline.
@@ -29,7 +34,8 @@
     download hosts are accepted, on every redirect.
 
 .PARAMETER Destination
-    Folder (default: Downloads) or full .iso path for -Url. Never overwritten.
+    Folder (default: Downloads) or full .iso path for -Url / -Auto. Never
+    overwritten.
 
 .PARAMETER Sha256
     Optional expected SHA-256 for -Url; a mismatch rejects the file.
@@ -41,7 +47,18 @@
     Print Microsoft's current language -> SHA-256 table.
 
 .PARAMETER Architecture
-    x64 or arm64 for -OpenPage / -ListHashes (default: this PC's architecture).
+    x64 or arm64 for -OpenPage / -ListHashes / -Auto (default: this PC's
+    architecture).
+
+.PARAMETER Language
+    Language of the ISO for -Auto (e.g. 'English', 'German'), default: the
+    language of this Windows, falling back to English.
+
+.PARAMETER Auto
+    Fully automatic download: no browser, no page to click. The script performs
+    the same session handshake as Microsoft's download page, asks for the
+    current Windows 11 release in the chosen language and downloads the
+    official ISO (resumable, SHA-256 checked).
 
 .PARAMETER PrepareTools
     Download and verify oscdimg (and wimlib on x64) now, for offline builds.
@@ -60,6 +77,10 @@
 .EXAMPLE
     .\tiny11iso.ps1 -Get
 .EXAMPLE
+    .\tiny11iso.ps1 -Auto
+.EXAMPLE
+    .\tiny11iso.ps1 -Auto -Language German -Architecture x64 -Destination D:\ISO
+.EXAMPLE
     .\tiny11iso.ps1 -OpenPage
 .EXAMPLE
     .\tiny11iso.ps1 -Url 'https://software.download.prss.microsoft.com/...iso?t=...' -Destination D:\ISO
@@ -70,11 +91,13 @@
 param(
     [Parameter(ParameterSetName = 'Verify', Mandatory = $true)][string]$Verify,
     [Parameter(ParameterSetName = 'Download', Mandatory = $true)][string]$Url,
-    [Parameter(ParameterSetName = 'Download')][string]$Destination = (Join-Path $env:USERPROFILE 'Downloads'),
+    [Parameter(ParameterSetName = 'Download')][Parameter(ParameterSetName = 'Auto')][string]$Destination = (Get-UserDownloadsFolder),
     [Parameter(ParameterSetName = 'Download')][string]$Sha256,
     [Parameter(ParameterSetName = 'Page', Mandatory = $true)][switch]$OpenPage,
     [Parameter(ParameterSetName = 'List', Mandatory = $true)][switch]$ListHashes,
-    [Parameter(ParameterSetName = 'Page')][Parameter(ParameterSetName = 'List')][ValidateSet('x64', 'arm64')][string]$Architecture = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }),
+    [Parameter(ParameterSetName = 'Auto', Mandatory = $true)][switch]$Auto,
+    [Parameter(ParameterSetName = 'Auto')][string]$Language,
+    [Parameter(ParameterSetName = 'Page')][Parameter(ParameterSetName = 'List')][Parameter(ParameterSetName = 'Auto')][ValidateSet('x64', 'arm64')][string]$Architecture = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }),
     [Parameter(ParameterSetName = 'Tools', Mandatory = $true)][switch]$PrepareTools,
     [Parameter(ParameterSetName = 'Get', Mandatory = $true)][switch]$Get,
     [Parameter(ParameterSetName = 'Get')][ValidateRange(1, 240)][int]$TimeoutMinutes = 45
@@ -107,6 +130,28 @@ switch ($PSCmdlet.ParameterSetName) {
             Write-IsoProgress -Stage download -Percent $view.Percent -Label $view.Text
         }
         $saved = Save-WindowsIsoDownload -Url $Url -Destination $Destination -ExpectedSha256 $Sha256 -OnProgress $report
+        Write-Host "Saved $($saved.Path) ($('{0:N0}' -f $saved.Bytes) bytes)."
+        if ($saved.Verification) { Write-Host $saved.Verification.Message }
+        Write-IsoResult $saved
+    }
+    'Auto' {
+        # Fully automatic: no browser, no page to click. Same handshake as the
+        # download page, then the official ISO downloaded here.
+        $culture = try { [Globalization.CultureInfo]::CurrentUICulture.Name } catch { '' }
+        $languages = Get-OfficialWindowsIsoLanguages -Architecture $Architecture -OnStatus { param($t) Write-Host "  $t" }
+        $link = Get-OfficialWindowsIsoDownloadLink -Languages $languages -Language ([string]$Language) -Culture $culture -OnStatus { param($t) Write-Host "  $t" }
+        if ($Language -and $link.Language -ne $Language) {
+            Write-Host "Note: Microsoft does not currently offer '$Language'; using '$($link.Language)' instead."
+        }
+        Write-Host "Official ISO: $($link.FileName)"
+        if ($link.Description) { Write-Host "Microsoft describes it as: $($link.Description)" }
+        $report = {
+            param($p)
+            $view = Format-IsoDownloadProgress -Progress $p
+            if ($p.Phase -eq 'verify') { Write-IsoProgress -Stage verify -Percent $view.Percent -Label 'Verifying the download (SHA-256)'; return }
+            Write-IsoProgress -Stage download -Percent $view.Percent -Label $view.Text
+        }
+        $saved = Save-WindowsIsoDownload -Url $link.Url -Destination $Destination -ExpectedSha256 $link.Sha256 -OnProgress $report
         Write-Host "Saved $($saved.Path) ($('{0:N0}' -f $saved.Bytes) bytes)."
         if ($saved.Verification) { Write-Host $saved.Verification.Message }
         Write-IsoResult $saved

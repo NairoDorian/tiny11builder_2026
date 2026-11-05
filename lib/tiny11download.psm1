@@ -21,6 +21,14 @@
       * Find-OfficialIsoHandoff powers the assisted "Get Windows 11" flow: it
         notices the link the user copies, or the ISO their browser finishes,
         and takes over.
+      * The fully automatic way (mirrors the upstream WinUI builder): the app
+        itself plays the download page's session handshake and then asks
+        Microsoft's own software-download-connector API for the language list
+        and the current release's direct ISO link. No browser is involved.
+        Get-OfficialWindowsIsoLanguages returns the offered languages;
+        Get-OfficialWindowsIsoDownloadLink resolves the actual download for a
+        language; Select-OfficialIsoLanguage maps a language / a Windows
+        culture to what Microsoft offers (English as the fallback).
 #>
 
 $Script:IsoPages = @{
@@ -404,5 +412,276 @@ function Get-LocalIsoCandidates {
     return @($files | Where-Object { $_.Length -ge $MinimumBytes } | Sort-Object LastWriteTime -Descending | Select-Object -First $Max |
         ForEach-Object { [pscustomobject]@{ Path = $_.FullName; Bytes = $_.Length; LastWriteTime = $_.LastWriteTime } })
 }
+
+#======================================================================
+#region Fully automatic download (Microsoft's own connector API)
+# Mirrors the session handshake the download page performs in a browser, the
+# same way the upstream ntdevlabs WinUI builder does it (LatestWindowsMedia):
+# read the page and its product-edition id, register a session through the
+# vlscppe/ov-df tags, then call Microsoft's software-download-connector API
+# for the language list and the direct ISO link of the current release.
+# One-time, official files only: the resolved link must pass the same
+# Test-MicrosoftIsoUrl host checks as a pasted one, and the download reuses
+# Save-WindowsIsoDownload (resumable, SHA-256 verified, never overwritten).
+#======================================================================
+
+$Script:CatalogHosts = @('www.microsoft.com', 'vlscppe.microsoft.com', 'ov-df.microsoft.com')
+$Script:ConnectorProfile = '606624d44113'
+$Script:ConnectorInstanceId = '560dc9f3-1aa5-4a2f-b63c-9e18f8d0e175'
+
+# The download page shows direct ISO links only to clients that do not look
+# like Windows (there it pushes the Installation Assistant instead). The
+# catalog handshake therefore identifies as a non-Windows browser, exactly as
+# the upstream builder and Rufus' Fido do. Microsoft's own servers, own files.
+$Script:CatalogUserAgent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+
+function New-OfficialCatalogClient {
+    # One shared HttpClient for a whole catalog session: cookies set by the
+    # handshake stay available to the connector calls. The caller disposes it.
+    # $Handler is a test seam (the fake Microsoft catalog server).
+    param([int]$TimeoutSeconds = 60, $Handler)
+    Add-Type -AssemblyName System.Net.Http
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $handler = if ($Handler) { $Handler } else {
+        $real = New-Object System.Net.Http.HttpClientHandler
+        $real.AllowAutoRedirect = $false
+        $real.UseCookies = $true
+        $real.CookieContainer = New-Object System.Net.CookieContainer
+        $real
+    }
+    $client = New-Object System.Net.Http.HttpClient($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+    [void]$client.DefaultRequestHeaders.UserAgent.ParseAdd($Script:CatalogUserAgent)
+    return $client
+}
+
+function Invoke-OfficialCatalogGet {
+    # Bounded GET for the catalog handshake (pages and JSON only): HTTPS,
+    # allow-listed Microsoft hosts on every redirect, the download page as
+    # referrer, at most 4 MB per response. $Client is not disposed here.
+    param(
+        [Parameter(Mandatory = $true)][System.Net.Http.HttpClient]$Client,
+        [Parameter(Mandatory = $true)][uri]$Uri,
+        [Parameter(Mandatory = $true)][uri]$Referrer,
+        [int]$MaxBytes = 4MB
+    )
+    for ($hop = 0; $hop -lt 5; $hop++) {
+        if (-not (Test-AllowedHttpsUri -Uri $Uri -AllowedHosts $Script:CatalogHosts)) { throw "Refusing catalog request to an unexpected host: $($Uri.Host)" }
+        $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $Uri)
+        # Referer as a plain header: Referrer's type is UriHeaderValue on .NET Framework
+        # (PS 5.1) but Uri on .NET 6+ (PS 7); a raw string works on every edition.
+        [void]$request.Headers.TryAddWithoutValidation('Referer', $Referrer.ToString())
+        $response = $Client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        try {
+            $code = [int]$response.StatusCode
+            if ($code -in 301, 302, 303, 307, 308) {
+                if (-not $response.Headers.Location) { throw 'Microsoft returned an empty redirect.' }
+                $Uri = if ($response.Headers.Location.IsAbsoluteUri) { $response.Headers.Location } else { [uri]::new($Uri, $response.Headers.Location) }
+                continue
+            }
+            if ($code -lt 200 -or $code -ge 300) { throw "Microsoft's download catalog answered HTTP $code." }
+            $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $memory = New-Object System.IO.MemoryStream
+            try {
+                $buffer = [byte[]]::new(65536)
+                while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    if ($memory.Length + $read -gt $MaxBytes) { throw "Microsoft's catalog response is larger than expected." }
+                    $memory.Write($buffer, 0, $read)
+                }
+                return [Text.Encoding]::UTF8.GetString($memory.ToArray())
+            } finally { $stream.Dispose(); $memory.Dispose() }
+        } finally { $response.Dispose() }
+    }
+    throw 'Too many catalog redirects.'
+}
+
+function ConvertFrom-OfficialCatalogProductEdition {
+    # The product-edition id from the download page HTML (first <option> of the
+    # <select id="product-edition">). Pure; throws when the page changed.
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Html)
+    $select = [regex]::Match($Html, '(?is)<select\b[^>]*\bid=["'']product-edition["''][^>]*>(.*?)</select>')
+    if (-not $select.Success) { throw "Microsoft's download page no longer contains the edition list. Use 'Get Windows 11...' or 'Download from link...' while the automatic downloader is updated." }
+    $option = [regex]::Match($select.Groups[1].Value, '(?is)<option\b[^>]*\bvalue=["''](\d+)["''][^>]*>')
+    if (-not $option.Success) { throw "Microsoft's download page changed: the edition list has no value. Use 'Get Windows 11...' or 'Download from link...' instead." }
+    return $option.Groups[1].Value
+}
+
+function Test-OfficialCatalogResponse {
+    # Microsoft's connector API reports refusals in an Errors array; turn the
+    # first one into a clear message that names the two manual alternatives.
+    param([Parameter(Mandatory = $true)]$Json)
+    if ($Json.Errors -and @($Json.Errors).Count -gt 0) {
+        $first = @($Json.Errors)[0]
+        $reason = if ($first.Value) { [Net.WebUtility]::HtmlDecode([string]$first.Value) } else { 'unknown reason' }
+        throw "Microsoft refused the download request ($reason). Retry later, use 'Get Windows 11...' (browser) or 'Download from link...' with a link from Microsoft's page."
+    }
+}
+
+function Get-OfficialLanguageForCulture {
+    # Maps a Windows culture (e.g. 'de-DE') to the language name Microsoft
+    # offers on the download page ('German'). Special cases mirror the
+    # upstream builder's SelectLanguage. Pure; never throws.
+    param([AllowEmptyString()][string]$Culture)
+    $name = ''
+    try { if ($Culture) { $name = [Globalization.CultureInfo]::GetCultureInfo($Culture).Name } } catch { return 'English' }
+    if (-not $name) { return 'English' }   # GetCultureInfo('') is the invariant culture, not an error.
+    switch ($name) {
+        'en-US'     { return 'English' }
+        { $_ -like 'en-*' }   { return 'English International' }
+        'pt-BR'     { return 'Brazilian Portuguese' }
+        'zh-CN'     { return 'Chinese Simplified' }
+        'zh-SG'     { return 'Chinese Simplified' }
+        'zh-TW'     { return 'Chinese Traditional' }
+        'zh-HK'     { return 'Chinese Traditional' }
+        'fr-CA'     { return 'French Canadian' }
+        'es-MX'     { return 'Spanish (Mexico)' }
+        default {
+            try {
+                $info = [Globalization.CultureInfo]::GetCultureInfo($name)
+                if ($info.Parent -and $info.Parent.Name) { return $info.Parent.EnglishName } else { return $info.EnglishName }
+            } catch { return 'English' }
+        }
+    }
+}
+
+function Get-KnownWindowsIsoLanguages {
+    # The languages Microsoft's Windows 11 download page has offered since
+    # 22H2 (38 entries, stable for years). Used to pre-fill the GUI dropdown
+    # offline; the live list at download time comes from the connector API and
+    # always wins: a requested language that Microsoft does not currently
+    # offer falls back to the culture match, then English.
+    return @(
+        'English', 'English International', 'Arabic', 'Brazilian Portuguese', 'Bulgarian', 'Chinese Simplified',
+        'Chinese Traditional', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French',
+        'French Canadian', 'German', 'Greek', 'Hebrew', 'Hungarian', 'Italian', 'Japanese', 'Korean', 'Latvian',
+        'Lithuanian', 'Norwegian', 'Polish', 'Portuguese', 'Romanian', 'Russian', 'Serbian Latin', 'Slovak',
+        'Slovenian', 'Spanish', 'Spanish (Mexico)', 'Swedish', 'Thai', 'Turkish', 'Ukrainian'
+    )
+}
+
+function Select-OfficialIsoLanguage {
+    # Picks one of Microsoft's offered languages (objects with SkuId + Language).
+    # Order: the requested language name -> the culture's language -> English.
+    # Letter-only comparison, like the upstream builder ('Chinese (Simplified)'
+    # matches 'Chinese Simplified'). Returns @{ SkuId; Language; Match } or throws.
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Languages,
+        [AllowEmptyString()][string]$Language,
+        [AllowEmptyString()][string]$Culture
+    )
+    $letters = { param($s) return ([string]$s -replace '[^\p{L}]', '').ToLowerInvariant() }
+    foreach ($item in $Languages) {
+        if ((& $letters $item.Language) -eq (& $letters $Language)) {
+            return [pscustomobject]@{ SkuId = [string]$item.SkuId; Language = [string]$item.Language; Match = 'Requested' }
+        }
+    }
+    if ($Culture) {
+        $preferred = Get-OfficialLanguageForCulture -Culture $Culture
+        foreach ($item in $Languages) {
+            if ((& $letters $item.Language) -eq (& $letters $preferred)) {
+                return [pscustomobject]@{ SkuId = [string]$item.SkuId; Language = [string]$item.Language; Match = 'Culture' }
+            }
+        }
+    }
+    foreach ($item in $Languages) {
+        if ((& $letters $item.Language) -eq 'english') {
+            return [pscustomobject]@{ SkuId = [string]$item.SkuId; Language = [string]$item.Language; Match = 'EnglishFallback' }
+        }
+    }
+    throw "Microsoft has no ISO matching '$Language' and no English ISO. Pick another language or use 'Get Windows 11...'."
+}
+
+function Get-OfficialWindowsIsoLanguages {
+    # Performs Microsoft's download-page session handshake and asks the
+    # software-download-connector API for the languages of the current release.
+    # Returns @{ Languages = @{ SkuId; Language }[]; SessionId; ProductEditionId; Client }
+    # (the Client is returned so Get-OfficialWindowsIsoDownloadLink can continue
+    # the same session; the caller disposes it when done).
+    # -OnStatus receives human-readable progress lines; -Client is a test seam.
+    param(
+        [ValidateSet('x64', 'arm64')][string]$Architecture = 'x64',
+        [scriptblock]$OnStatus,
+        $Client
+    )
+    $page = [uri]$Script:IsoPages[$Architecture]
+    $ownsClient = -not $Client
+    $client = if ($Client) { $Client } else { New-OfficialCatalogClient }
+    $report = { param([string]$text) if ($OnStatus) { & $OnStatus $text } }
+    try {
+        & $report "Asking Microsoft for the current Windows 11 $Architecture release..."
+        $html = Invoke-OfficialCatalogGet -Client $client -Uri ($page.ToString()) -Referrer $page
+        $product = ConvertFrom-OfficialCatalogProductEdition -Html $html
+        $session = [guid]::NewGuid().ToString()
+        & $report "Registering the download session with Microsoft..."
+        $null = Invoke-OfficialCatalogGet -Client $client -Referrer $page -Uri ([uri]"https://vlscppe.microsoft.com/tags?org_id=y6jn8c31&session_id=$session")
+        $mdt = Invoke-OfficialCatalogGet -Client $client -Referrer $page -Uri ([uri]"https://ov-df.microsoft.com/mdt.js?instanceId=$($Script:ConnectorInstanceId)&PageId=si&session_id=$session")
+        $w = [regex]::Match($mdt, '[?&]w=([A-F0-9]+)').Groups[1].Value
+        $ticks = [regex]::Match($mdt, 'rticks="\+?(\d+)').Groups[1].Value
+        if (-not $w -or -not $ticks) { throw "Microsoft did not provide a download session. Retry later, use 'Get Windows 11...' (browser) or 'Download from link...' instead." }
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $null = Invoke-OfficialCatalogGet -Client $client -Referrer $page -Uri ([uri]"https://ov-df.microsoft.com/?session_id=$session&CustomerId=$($Script:ConnectorInstanceId)&PageId=si&w=$w&mdt=$now&rticks=$ticks")
+        & $report "Reading the language list for the current release..."
+        $url = "https://www.microsoft.com/software-download-connector/api/getskuinformationbyproductedition?profile=$($Script:ConnectorProfile)" +
+            "&productEditionId=$product&SKU=undefined&friendlyFileName=undefined&Locale=en-US&sessionID=$session"
+        $json = Invoke-OfficialCatalogGet -Client $client -Referrer $page -Uri ([uri]$url) | ConvertFrom-Json
+        Test-OfficialCatalogResponse -Json $json
+        $languages = @($json.Skus | ForEach-Object { [pscustomobject]@{ SkuId = [string]$_.Id; Language = [string]$_.Language } })
+        if (-not $languages.Count) { throw "Microsoft's catalog returned no languages for the current release. Retry later or use 'Get Windows 11...'." }
+        return [pscustomobject]@{
+            Languages = $languages; SessionId = $session; ProductEditionId = $product; Architecture = $Architecture; Client = $client
+        }
+    } catch {
+        if ($ownsClient) { $client.Dispose() }
+        throw
+    }
+}
+
+function Get-OfficialWindowsIsoDownloadLink {
+    # Continues a catalog session: picks the language (requested name, else the
+    # culture's language, else English) and asks the connector API for the
+    # direct ISO link of the current release. Returns
+    # @{ Url; FileName; Description; Language; Architecture; Sha256; SkuId; Match }.
+    # The returned URL passes Test-MicrosoftIsoUrl (Microsoft hosts only); the
+    # Sha256 (when Microsoft publishes one) can be handed to
+    # Save-WindowsIsoDownload as the expected hash. The session Client from
+    # Get-OfficialWindowsIsoLanguages is disposed here.
+    param(
+        [Parameter(Mandatory = $true)]$Languages,
+        [AllowEmptyString()][string]$Language,
+        [AllowEmptyString()][string]$Culture,
+        [scriptblock]$OnStatus
+    )
+    $client = $Languages.Client
+    $page = [uri]$Script:IsoPages[$Languages.Architecture]
+    try {
+        $pick = Select-OfficialIsoLanguage -Languages @($Languages.Languages) -Language $Language -Culture $Culture
+        $report = { param([string]$text) if ($OnStatus) { & $OnStatus $text } }
+        $requested = if ($Language) { $Language } else { $pick.Language }
+        & $report "Getting the latest $($Languages.Architecture) ISO in $requested..."
+        $url = "https://www.microsoft.com/software-download-connector/api/GetProductDownloadLinksBySku?profile=$($Script:ConnectorProfile)" +
+            "&productEditionId=undefined&SKU=$($pick.SkuId)&friendlyFileName=undefined&Locale=en-US&sessionID=$($Languages.SessionId)"
+        $json = Invoke-OfficialCatalogGet -Client $client -Referrer $page -Uri ([uri]$url) | ConvertFrom-Json
+        Test-OfficialCatalogResponse -Json $json
+        # DownloadType 1 = x64 ISO, 2 = ARM64 ISO (mirrors the upstream builder).
+        $wanted = if ($Languages.Architecture -eq 'arm64') { 2 } else { 1 }
+        $item = @($json.ProductDownloadOptions) | Where-Object { [int]$_.DownloadType -eq $wanted } | Select-Object -First 1
+        if (-not $item) { throw "Microsoft returned no $($Languages.Architecture) ISO for $requested. Retry later or use 'Get Windows 11...' (browser)." }
+        $iso = Test-MicrosoftIsoUrl -Url ([string]$item.Uri)
+        $fileName = Get-IsoFileNameFromUrl -Uri $iso
+        $sha = ''
+        if ($item.Sha256) {
+            $sha = ([string]$item.Sha256).Trim().ToUpperInvariant()
+            if ($sha -notmatch '^[A-F0-9]{64}$') { throw "Microsoft published an invalid SHA-256 for the ISO; the file was not accepted." }
+        }
+        return [pscustomobject]@{
+            Url = $iso.AbsoluteUri; FileName = $fileName; Description = [string]$item.LocalizedProductDisplayName
+            Language = $pick.Language; Architecture = $Languages.Architecture; Sha256 = $sha; SkuId = $pick.SkuId; Match = $pick.Match
+        }
+    } finally {
+        if ($client) { $client.Dispose() }
+    }
+}
+
+#endregion
 
 Export-ModuleMember -Function *-*

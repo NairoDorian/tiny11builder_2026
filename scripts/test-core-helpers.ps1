@@ -1386,6 +1386,11 @@ $interactive = [regex]::Matches($guiText, '(?m)^\s*\$(\w+)\s*=\s*New-UiControl -
 $helped = @([regex]::Matches($guiText, 'SetToolTip\(\$(\w+)') | ForEach-Object { $_.Groups[1].Value }) + @([regex]::Matches($guiText, '(?m)^\s*,?@\(\$(\w+),') | ForEach-Object { $_.Groups[1].Value })
 $noHelp = @($interactive | Where-Object { $helped -notcontains $_ } | Select-Object -Unique)
 Check "every interactive GUI control has mouse-over help ($($noHelp -join ', '))" ($noHelp.Count -eq 0)
+# ISO download cancel: a hidden-by-default button, shown only while a download
+# worker runs and wired to the same safe stop path as the toggle buttons.
+Check 'ISO download cancel button exists, hidden by default' ($guiText -match '\$btnCancelIso = New-UiControl -Type Button[^\r\n]*Visible = \$false')
+Check 'cancel button shown only during downloads'            ($guiText -match '\$btnCancelIso\.Visible = \(\$Kind -eq ''download''\)')
+Check 'cancel button wired to the safe stop path'            ($guiText -match '\$btnCancelIso\.Add_Click[\s\S]*?& \$stopIsoWorker ''download''')
 $readyChecks = @(Test-GuiBuildRequest -State (Get-GuiDefaultState) | Where-Object { $_.Message -match 'oscdimg|Offline-ready|wimlib' })
 Check 'Checks report offline tool readiness'  ($readyChecks.Count -eq 1)
 

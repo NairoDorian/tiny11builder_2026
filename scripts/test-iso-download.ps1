@@ -77,6 +77,75 @@ if (-not ('Tiny11FakeIsoServer' -as [type])) {
     else { Add-Type -TypeDefinition $handlerSource -ReferencedAssemblies 'System.Net.Http' }
 }
 
+$catalogHandlerSource = @'
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+// Serves the download page, the mdt.js handshake blob and the connector API
+// payloads, routing by host and path, so the fully automatic download can be
+// exercised without touching Microsoft.
+public class Tiny11FakeCatalogServer : HttpMessageHandler
+{
+    public string PageHtml = "";
+    public string MdtBody = "";
+    public string SkuJson = "";
+    public string LinksJsonTemplate = "";   // {SKU} is replaced by the SKU query parameter
+    public int FailStatus = 0;              // != 0: connector API calls answer with this status
+    public List<string> Requests = new List<string>();
+    public List<string> Referers = new List<string>();
+    public List<string> UserAgents = new List<string>();
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        Requests.Add(request.RequestUri.ToString());
+        string referer = "";
+        if (request.Headers.Referrer != null) referer = request.Headers.Referrer.ToString();
+        if (referer == "")
+        {
+            IEnumerable<string> values;
+            if (request.Headers.TryGetValues("Referer", out values))
+                foreach (string value in values) referer += value;
+        }
+        Referers.Add(referer);
+        string agent = "";
+        foreach (string value in request.Headers.GetValues("User-Agent")) agent += value;
+        UserAgents.Add(agent);
+        string host = request.RequestUri.Host;
+        string path = request.RequestUri.AbsolutePath;
+        string body = "";
+        bool connector = host == "www.microsoft.com" &&
+            (path.IndexOf("/software-download-connector/api/getskuinformationbyproductedition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             path.IndexOf("/software-download-connector/api/GetProductDownloadLinksBySku", StringComparison.OrdinalIgnoreCase) >= 0);
+        if (connector && FailStatus != 0)
+        {
+            HttpResponseMessage failure = new HttpResponseMessage((HttpStatusCode)FailStatus);
+            return Task.FromResult(failure);
+        }
+        if (connector && path.IndexOf("GetProductDownloadLinksBySku", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            string sku = "";
+            foreach (string part in request.RequestUri.Query.Split('&'))
+                if (part.StartsWith("SKU=", StringComparison.OrdinalIgnoreCase)) sku = part.Substring(4);
+            body = LinksJsonTemplate.Replace("{SKU}", sku);
+        }
+        else if (connector) { body = SkuJson; }
+        else if (host == "ov-df.microsoft.com" && path == "/mdt.js") { body = MdtBody; }
+        else if (host == "www.microsoft.com") { body = PageHtml; }
+        HttpResponseMessage response = new HttpResponseMessage(HttpStatusCode.OK);
+        response.Content = new StringContent(body);
+        return Task.FromResult(response);
+    }
+}
+'@
+if (-not ('Tiny11FakeCatalogServer' -as [type])) {
+    if ($PSVersionTable.PSEdition -eq 'Core') { Add-Type -TypeDefinition $catalogHandlerSource }
+    else { Add-Type -TypeDefinition $catalogHandlerSource -ReferencedAssemblies 'System.Net.Http' }
+}
+
 $root = Join-Path ([IO.Path]::GetTempPath()) ("t11-iso-test-$PID-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 try {
@@ -194,7 +263,7 @@ try {
     $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'verify'; Bytes = 37; Total = 100; BytesPerSecond = 0 })
     Check 'verify phase reports the hash percent'    ($view.Percent -eq 37 -and $view.Text -match '37%')
     $callers = (Get-Content -Raw -LiteralPath (Join-Path $repo 'lib\tiny11gui.psm1')) + (Get-Content -Raw -LiteralPath (Join-Path $repo 'tiny11iso.ps1'))
-    Check 'GUI and CLI share the formatter'          (([regex]::Matches($callers, 'Format-IsoDownloadProgress -Progress \$p')).Count -eq 2 -and $callers -notmatch '\[Math\]::Max\(1, \$p\.Total\)')
+    Check 'GUI and CLI share the formatter'          ($callers -match 'Format-IsoDownloadProgress -Progress \$p' -and $callers -notmatch '\[Math\]::Max\(1, \$p\.Total\)')
 
     Write-Host '== Assisted "Get Windows 11" hand-off =='
     $watch = Join-Path $root 'watch'; New-Item -ItemType Directory -Path $watch | Out-Null
@@ -228,6 +297,120 @@ try {
     $found = @(Get-LocalIsoCandidates -Folder $scan -OnlyGivenFolders -MinimumBytes 1)
     Check 'only .iso files, newest first'            ($found.Count -eq 2 -and $found[0].Path -like '*new.iso' -and $found[1].Path -like '*old.iso')
     Check 'small files ignored by default size'      (@(Get-LocalIsoCandidates -Folder $scan -OnlyGivenFolders).Count -eq 0)
+
+    Write-Host '== Fully automatic download: language helpers (pure) =='
+    $page = '<html><body><select id="product-edition" name="product-edition"><option value="2975">Windows 11 (multi-edition ISO)</option><option value="2976">Windows 11 Home</option></select></body></html>'
+    Check 'product edition id from the page HTML'    ((ConvertFrom-OfficialCatalogProductEdition -Html $page) -eq '2975')
+    CheckThrows 'page without the edition list throws' { ConvertFrom-OfficialCatalogProductEdition -Html '<html></html>' }
+    Check 'en-US maps to English'                   ((Get-OfficialLanguageForCulture -Culture 'en-US') -eq 'English')
+    Check 'en-GB maps to English International'      ((Get-OfficialLanguageForCulture -Culture 'en-GB') -eq 'English International')
+    Check 'pt-BR maps to Brazilian Portuguese'      ((Get-OfficialLanguageForCulture -Culture 'pt-BR') -eq 'Brazilian Portuguese')
+    Check 'zh-CN maps to Chinese Simplified'        ((Get-OfficialLanguageForCulture -Culture 'zh-CN') -eq 'Chinese Simplified')
+    Check 'fr-CA maps to French Canadian'           ((Get-OfficialLanguageForCulture -Culture 'fr-CA') -eq 'French Canadian')
+    Check 'de-DE maps to German'                   ((Get-OfficialLanguageForCulture -Culture 'de-DE') -eq 'German')
+    Check 'es-MX maps to Spanish (Mexico)'          ((Get-OfficialLanguageForCulture -Culture 'es-MX') -eq 'Spanish (Mexico)')
+    Check 'empty culture maps to English'           ((Get-OfficialLanguageForCulture -Culture '') -eq 'English')
+    $known = @(Get-KnownWindowsIsoLanguages)
+    Check 'known language list is the stable 38'    ($known.Count -eq 38 -and $known[0] -eq 'English' -and $known -contains 'Ukrainian')
+    $offered = @([pscustomobject]@{ SkuId = '2378'; Language = 'English' }, [pscustomobject]@{ SkuId = '2379'; Language = 'German' })
+    $pick = Select-OfficialIsoLanguage -Languages $offered -Language 'German' -Culture ''
+    Check 'requested language matched exactly'       ($pick.SkuId -eq '2379' -and $pick.Match -eq 'Requested')
+    $pick = Select-OfficialIsoLanguage -Languages $offered -Language 'Chinese (Simplified)' -Culture 'zh-CN'
+    Check 'unoffered language falls back to English' ($pick.SkuId -eq '2378' -and $pick.Match -eq 'EnglishFallback' -and $pick.Language -eq 'English')
+    $pick = Select-OfficialIsoLanguage -Languages $offered -Language 'chinese simplified' -Culture ''
+    Check 'letter-only matching like upstream'      ($pick.Language -eq 'English' -and $pick.Match -eq 'EnglishFallback')
+    CheckThrows 'no match and no English -> clear error' { Select-OfficialIsoLanguage -Languages @([pscustomobject]@{ SkuId = '1'; Language = 'German' }) -Language 'French' -Culture 'fr-FR' }
+    CheckThrows 'empty language list -> clear error' { Select-OfficialIsoLanguage -Languages @() -Language 'English' -Culture '' }
+
+    Write-Host '== Fully automatic download: catalog handshake through a fake Microsoft server =='
+    $pageHtml = $page
+    $mdtBody = 'var m = { u: "https://ov-df.microsoft.com/?w=1A2B3C4D5E6F" }; rticks="638888888888888888"'
+    $skusJson = '{"ProductDisplayName":"Windows 11 26H2","Skus":[{"Id":2378,"Language":"English"},{"Id":2379,"Language":"German"}],"Errors":[]}'
+    $linksJson = '{"ProductDownloadOptions":[{"DownloadType":1,"Uri":"https://software.download.prss.microsoft.com/db/Win11_26H2_{SKU}_x64.iso?t=abc","Sha256":"{SHA}","LocalizedProductDisplayName":"Win 11 26H2 {SKU}"},{"DownloadType":2,"Uri":"https://software.download.prss.microsoft.com/db/Win11_26H2_{SKU}_arm64.iso","LocalizedProductDisplayName":"arm"}],"Errors":[]}'
+    # A fresh server per scenario; the client (UA, cookies, redirects off) is
+    # the module's own, built over the fake handler.
+    $newCatalogServer = {
+        $s = New-Object Tiny11FakeCatalogServer
+        $s.PageHtml = $pageHtml; $s.MdtBody = $mdtBody
+        $s.SkuJson = $skusJson; $s.LinksJsonTemplate = $linksJson.Replace('{SHA}', 'A' * 64)
+        $s
+    }
+
+    # The handshake itself: page -> session tags -> mdt.js -> connector API.
+    $catalogServer = & $newCatalogServer
+    $catalogClient = New-OfficialCatalogClient -Handler $catalogServer
+    $status = [Collections.Generic.List[string]]::new()
+    $session = $null
+    try { $session = Get-OfficialWindowsIsoLanguages -Architecture x64 -Client $catalogClient -OnStatus { param($t) $status.Add($t) } } catch { Write-Host "  handshake error: $($_.Exception.Message)" }
+    Check 'handshake returns the offered languages'  ($session -and @($session.Languages).Count -eq 2 -and $session.Languages[0].Language -eq 'English' -and $session.Languages[1].SkuId -eq '2379')
+    Check 'session id and edition id carried over'   ($session -and $session.SessionId -match '^[0-9a-f-]{36}$' -and $session.ProductEditionId -eq '2975')
+    Check 'progress lines reported'                 ($status.Count -ge 2 -and $status[0] -match 'current Windows 11')
+    if ($catalogServer.Requests.Count) {
+        $hosts = @($catalogServer.Requests | ForEach-Object { ([uri]$_).Host } | Select-Object -Unique)
+        Check 'only allow-listed Microsoft hosts asked' (@($hosts | Where-Object { $_ -notin 'www.microsoft.com', 'vlscppe.microsoft.com', 'ov-df.microsoft.com' }).Count -eq 0 -and $hosts -contains 'vlscppe.microsoft.com' -and $hosts -contains 'ov-df.microsoft.com')
+        Check 'every request carries the page as referrer' (@($catalogServer.Referers | Where-Object { $_ -match 'software-download/windows11' }).Count -eq $catalogServer.Requests.Count)
+        Check 'a non-Windows client is presented'    (@($catalogServer.UserAgents | Where-Object { $_ -notmatch 'Windows NT' }).Count -eq $catalogServer.Requests.Count)
+        Check 'page HTML read exactly once'          (@($catalogServer.Requests | Where-Object { $_ -match 'software-download/windows11$' }).Count -eq 1)
+    } else { Check 'handshake reached the server' $false }
+
+    # Continue the same session: resolve German, the culture fallback, and the
+    # arm64 default - each through its matching SKU and download type.
+    $catalogClient = New-OfficialCatalogClient -Handler (& $newCatalogServer)
+    $session = Get-OfficialWindowsIsoLanguages -Architecture x64 -Client $catalogClient
+    $link = Get-OfficialWindowsIsoDownloadLink -Languages $session -Language 'German' -Culture ''
+    Check 'German resolves via its SKU'              ($link.Url -match 'Win11_26H2_2379_x64\.iso' -and $link.Language -eq 'German' -and $link.Match -eq 'Requested')
+    Check 'file name and description from the link'  ($link.FileName -eq 'Win11_26H2_2379_x64.iso' -and $link.Description -eq 'Win 11 26H2 2379')
+    Check 'SHA-256 normalised to upper case'         ($link.Sha256 -eq ('A' * 64))
+
+    $catalogClient = New-OfficialCatalogClient -Handler (& $newCatalogServer)
+    $session = Get-OfficialWindowsIsoLanguages -Architecture x64 -Client $catalogClient
+    $link = Get-OfficialWindowsIsoDownloadLink -Languages $session -Language 'Swahili' -Culture 'de-DE'
+    Check 'unoffered language falls back to culture' ($link.Language -eq 'German' -and $link.Match -eq 'Culture' -and $link.Url -match '2379')
+
+    $catalogClient = New-OfficialCatalogClient -Handler (& $newCatalogServer)
+    $session = Get-OfficialWindowsIsoLanguages -Architecture arm64 -Client $catalogClient
+    $link = Get-OfficialWindowsIsoDownloadLink -Languages $session -Language '' -Culture ''
+    Check 'empty request resolves English by default' ($link.Language -eq 'English' -and $link.Match -eq 'EnglishFallback' -and $link.Architecture -eq 'arm64')
+    Check 'arm64 asks for download type 2'          ($link.Url -match '_arm64\.iso')
+
+    # Refusals and failures must surface as clear advice, never as a crash.
+    $refusalServer = New-Object Tiny11FakeCatalogServer
+    $refusalServer.PageHtml = $pageHtml; $refusalServer.MdtBody = $mdtBody
+    $refusalServer.SkuJson = '{"Skus":[],"Errors":[{"Value":"Too many requests"}]}'
+    $threw = $null
+    try { Get-OfficialWindowsIsoLanguages -Client (New-OfficialCatalogClient -Handler $refusalServer) | Out-Null } catch { $threw = $_.Exception.Message }
+    Check 'connector refusal gets a clear message'   ($threw -match 'Too many requests' -and $threw -match 'Get Windows 11')
+
+    $noIsoServer = New-Object Tiny11FakeCatalogServer
+    $noIsoServer.PageHtml = $pageHtml; $noIsoServer.MdtBody = $mdtBody
+    $noIsoServer.SkuJson = $skusJson; $noIsoServer.LinksJsonTemplate = '{"ProductDownloadOptions":[],"Errors":[]}'
+    $session = Get-OfficialWindowsIsoLanguages -Client (New-OfficialCatalogClient -Handler $noIsoServer)
+    $threw = $null
+    try { Get-OfficialWindowsIsoDownloadLink -Languages $session -Language 'German' -Culture '' | Out-Null } catch { $threw = $_.Exception.Message }
+    Check 'no ISO for the SKU gets a clear message'  ($threw -match 'no x64 ISO')
+
+    $brokenServer = New-Object Tiny11FakeCatalogServer
+    $brokenServer.PageHtml = $pageHtml; $brokenServer.MdtBody = 'var broken = true;'
+    $threw = $null
+    try { Get-OfficialWindowsIsoLanguages -Client (New-OfficialCatalogClient -Handler $brokenServer) | Out-Null } catch { $threw = $_.Exception.Message }
+    Check 'broken handshake gets a clear message'    ($threw -match 'download session' -and $threw -match 'Get Windows 11')
+
+    $httpFailServer = New-Object Tiny11FakeCatalogServer
+    $httpFailServer.PageHtml = $pageHtml; $httpFailServer.MdtBody = $mdtBody
+    $httpFailServer.FailStatus = 403
+    $threw = $null
+    try { Get-OfficialWindowsIsoLanguages -Client (New-OfficialCatalogClient -Handler $httpFailServer) | Out-Null } catch { $threw = $_.Exception.Message }
+    Check 'HTTP failure surfaces with the status'    ($threw -match '403')
+
+    # The resolved link feeds the existing downloader unchanged.
+    $shaServer = & $newCatalogServer
+    $shaServer.LinksJsonTemplate = $linksJson.Replace('{SHA}', $dataSha)
+    $session = Get-OfficialWindowsIsoLanguages -Client (New-OfficialCatalogClient -Handler $shaServer)
+    $link = Get-OfficialWindowsIsoDownloadLink -Languages $session -Language 'English' -Culture 'en-US'
+    Check 'x64 asks for download type 1'            ($link.Url -match '_x64\.iso' -and $link.Url -match '2378')
+    $isoServer = New-Object Tiny11FakeIsoServer; $isoServer.Data = $data
+    $saved = Save-WindowsIsoDownload -Url $link.Url -Destination (Join-Path $root 'auto') -ExpectedSha256 $link.Sha256 -Client (& $newClient $isoServer) -RetryDelaySeconds @(0) -Catalog $dataCatalog 6>$null
+    Check 'automatic link downloads and verifies'   ($saved.Verification.Status -eq 'Verified' -and (Get-FileHash -LiteralPath $saved.Path -Algorithm SHA256).Hash -eq $dataSha)
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }

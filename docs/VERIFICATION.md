@@ -21,14 +21,14 @@ After the upstream WinUI 0.2 reimplementation (see [UPSTREAM_MERGE_PLAN.md](UPST
 
 | Check | Windows PowerShell 5.1 | PowerShell 7 |
 |---|---:|---:|
-| Core helpers / catalog / answer files / mocked stages / fake GUI / help & GUI-contract audits | 2,087 passed, 0 failed | 2,089 passed, 0 failed |
-| ISO recognition, resumable download (offline fake server), assisted hand-off detection | 46 passed | 46 passed |
+| Core helpers / catalog / answer files / mocked stages / fake GUI / help & GUI-contract audits (incl. the 3 ISO-download-cancel GUI-source checks) | 2,090 passed, 0 failed | 2,092 passed, 0 failed |
+| ISO recognition, resumable download, assisted hand-off, fully automatic handshake (offline fake servers) | 89 passed | 89 passed |
 | Real WIM/ESD export fixtures | 129 passed | 129 passed |
 | ISO metadata / progress / timing fixtures | 23 passed | 23 passed |
 | Parse and command resolution | passed | passed |
 | Generated freshness, lint | — | passed |
 
-Live, read-only: `tiny11iso.ps1 -Verify` recognized the source ISO as Microsoft's 26H2 English 64-bit entry, and `-ListHashes` read the ARM64 table under 5.1 ([evidence](verification/2026-11-05/iso-recognition.json)). No real multi-GB Microsoft download was run; the download path is covered by the fake-server suite only.
+Live, read-only: `tiny11iso.ps1 -Verify` recognized the source ISO as Microsoft's 26H2 English 64-bit entry, and `-ListHashes` read the ARM64 table under 5.1 ([evidence](verification/2026-11-05/iso-recognition.json)). No real multi-GB Microsoft download was run; both download paths (manual link, fully automatic) are covered by the fake-server suites only. The fully automatic handshake is tested against a fake catalog server that replays the page → session tags → mdt.js → connector flow; a live run against Microsoft's real connector API has **not** been executed from this working tree (the user requested exactly one such live download from the GUI at their own run).
 
 New real-file fixtures run **non-elevated** on the dev host:
 - native deletion keeps a surviving hard link's content, read-only attribute and exact ACL, does not follow junctions, and handles >260-character paths;
