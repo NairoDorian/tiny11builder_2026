@@ -1,17 +1,27 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    Regenerates the files derived from code: docs\TWEAKS.md (from
-    data\tweaks.psd1 + presets) and the reference answer files
-    autounattend.xml / autounattend-arm64.xml (from New-UnattendXml).
+    Regenerates every file derived from code or data. Owns exactly six outputs:
+
+      docs\TWEAKS.md               registry groups, values, service start types and
+                                  scheduled tasks, from data\tweaks.psd1 + presets
+      docs\APPS.md                removal prefixes, protected apps, optional
+                                  utilities and preset/capability behavior, from
+                                  removePackage.txt + presets
+      autounattend.xml            reference answer files from New-UnattendXml,
+      autounattend-arm64.xml      one per architecture
+      lib\tiny11utils.psd1        module manifest; FunctionsToExport is generated,
+      lib\tiny11gui.psd1          so hand-added exports are silently dropped
 
 .DESCRIPTION
-    Run after editing the tweak catalog, a preset or the answer-file
-    generator. CI runs it with -Check and fails when a generated file is out
-    of date, so documentation can never drift from what the builders do.
+    Run after editing the tweak catalog, an app list, a preset, the answer-file
+    generator or a module's public functions. Editing a generated file alone
+    will be overwritten here and CI runs this script with -Check and fails when
+    any output is out of date, so documentation cannot drift from behavior.
 
 .PARAMETER Check
-    Do not write anything; exit 1 if any generated file differs.
+    Do not write anything; exit 1 if any generated file differs. Line endings are
+    normalized before comparison, so a file differing only in CRLF/LF is current.
 #>
 param([switch]$Check)
 
@@ -202,6 +212,19 @@ $apps.Add('PowerShell ISE, Quick Assist, the XPS Viewer, extended wallpapers, an
 $apps.Add('packs of the image language. OCR, text-to-speech (Narrator) and the basic language features')
 $apps.Add('(spell-check, typing) are kept. Core builds also remove OCR, text-to-speech and legacy Windows')
 $apps.Add('Media Player, plus the matching component packages and Defender.')
+$apps.Add('')
+$apps.Add('Every removal is verified by re-reading the image afterwards: `NotPresent` counts as removed,')
+$apps.Add('`UninstallPending` is reported as deferred until first boot (not as absent), and any other state is')
+$apps.Add('a counted warning.')
+$apps.Add('')
+$apps.Add('## Legacy optional features')
+$apps.Add('')
+$apps.Add('With `RemoveCapabilities` (and always in Core) these optional features are disabled **with their')
+$apps.Add('payload removed**, but only when the image actually has them enabled: XPS printing')
+$apps.Add('(`Printing-XPSServices-Features`), Work Folders (`WorkFolders-Client`), the retired Internet')
+$apps.Add('Explorer optional feature (`Internet-Explorer-Optional-<arch>`) and Recall (`Recall`, where DISM')
+$apps.Add('exposes it). .NET 3.5 and every other feature are untouched. States are re-read afterwards;')
+$apps.Add('`DisablePending` completes at first boot. Adopted from the upstream WinUI 0.2 Tiny11 set.')
 $apps.Add('')
 $outputs['docs\APPS.md'] = ($apps -join "`r`n") + "`r`n"
 

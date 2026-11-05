@@ -152,3 +152,16 @@ packs of the image language. OCR, text-to-speech (Narrator) and the basic langua
 (spell-check, typing) are kept. Core builds also remove OCR, text-to-speech and legacy Windows
 Media Player, plus the matching component packages and Defender.
 
+Every removal is verified by re-reading the image afterwards: `NotPresent` counts as removed,
+`UninstallPending` is reported as deferred until first boot (not as absent), and any other state is
+a counted warning.
+
+## Legacy optional features
+
+With `RemoveCapabilities` (and always in Core) these optional features are disabled **with their
+payload removed**, but only when the image actually has them enabled: XPS printing
+(`Printing-XPSServices-Features`), Work Folders (`WorkFolders-Client`), the retired Internet
+Explorer optional feature (`Internet-Explorer-Optional-<arch>`) and Recall (`Recall`, where DISM
+exposes it). .NET 3.5 and every other feature are untouched. States are re-read afterwards;
+`DisablePending` completes at first boot. Adopted from the upstream WinUI 0.2 Tiny11 set.
+

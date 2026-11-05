@@ -4,10 +4,17 @@ using System.Runtime.InteropServices;
 /**
  * AdjPriv.cs - Take ownership of registry keys from TrustedInstaller.
  *
- * Used by the Enable-Privilege and Enable-TaskCacheWriteAccess functions in
- * tiny11utils.psm1 to grant the Administrators group full control over the
- * protected Scheduled Tasks TaskCache registry key, allowing safe deletion of
- * task GUIDs during image customization.
+ * Reference copy of the privilege helper. Enable-Privilege in tiny11utils.psm1
+ * compiles an equivalent inline Add-Type copy so the module has no file
+ * dependency, so nothing loads this file at run time; it is kept as the readable
+ * source of the P/Invoke shape and its original attribution.
+ *
+ * Enables SeTakeOwnership/SeBackup/SeRestore so Enable-TaskCacheWriteAccess can
+ * grant Administrators full control over the protected Scheduled Tasks TaskCache
+ * registry key, allowing safe deletion of task GUIDs during image customization.
+ *
+ * The rebuilt image is offline: this changes the ACLs of the attached image hive
+ * under HKLM\z*, never a live host key.
  *
  * @author Jose Espitia (original concept), chrisGrando (reforged port),
  *         vinisebold (revamped integration)

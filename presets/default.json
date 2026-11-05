@@ -1,6 +1,6 @@
 {
     "name": "Default",
-    "description": "Balanced tiny11: removes bloat, Edge, OneDrive and AI features; keeps Store, Defender and WebView2",
+    "description": "Balanced tiny11: removes bloat, Edge, OneDrive, AI features and Defender; Ultimate Performance and fast shutdown on; keeps Store and WebView2",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,
@@ -9,7 +9,7 @@
         "removeWebView": false,
         "removeAI": true,
         "removeStore": false,
-        "removeDefender": false,
+        "removeDefender": true,
         "keepXbox": false
     },
     "privacy": {
@@ -22,8 +22,8 @@
         "disableDefenderCloud": false
     },
     "performance": {
-        "enableUltimatePerformance": false,
-        "enableFastShutdown": false,
+        "enableUltimatePerformance": true,
+        "enableFastShutdown": true,
         "disableMouseAcceleration": false,
         "enableUtcClock": false,
         "tuneDefenderCpuLimit": true,

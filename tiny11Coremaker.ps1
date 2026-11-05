@@ -7,9 +7,14 @@
       - removes component packages (IE, Media Player, handwriting/OCR/speech/TTS,
         Defender, WordPad, Steps Recorder, Math Input, extended wallpapers)
       - removes WinRE (no recovery environment / Reset this PC)
-      - rebuilds WinSxS keeping only the servicing stack and core assemblies
+      - trims WinSxS in place, keeping only the servicing stack, common controls,
+        GDI+, VC runtimes and the store metadata (native ACL-preserving deletion;
+        refused while servicing is pending)
       - disables Windows Update and Microsoft Defender
-      - removes Edge including WebView2
+      - removes Edge including WebView2, plus the capability set
+
+    Edge/WebView2/OneDrive/capability removal is unconditional: -Preset selects
+    only the remaining optional tweaks.
 
     The result is NOT serviceable: no cumulative updates, language packs or
     optional features can be added afterwards. Use it for disposable VMs,
@@ -33,7 +38,8 @@
 
 .PARAMETER Preset
     Preset for the optional tweaks (default: Minimal-VM). Core always removes
-    Edge, OneDrive and Defender and disables Windows Update regardless.
+    Edge, WebView2, OneDrive, capabilities and Defender and disables Windows
+    Update regardless of the preset. -KeepApps is still honored.
 
 .PARAMETER EnableNetFx3
     Enable .NET Framework 3.5 (must happen at build time: the image cannot be
@@ -42,14 +48,102 @@
 .PARAMETER OutputIso
     Output ISO path (default: tiny11core.iso next to this script).
 
+.PARAMETER KeepApps
+    Skip provisioned-app removal (Edge/OneDrive/capabilities are still removed in Core).
+
+.PARAMETER Keep
+    Optional utilities to keep (Terminal, Calculator, Notepad, Photos, Paint, Camera,
+    SoundRecorder, StickyNotes, Clock, MediaPlayer, MoviesTV, SnippingTool).
+
+.PARAMETER Remove
+    Optional utilities to remove (same names as -Keep).
+
+.PARAMETER PackageList
+    Use this file of app-name prefixes instead of removePackage.txt.
+
+.PARAMETER SkipTweak
+    Tweak group ids from data\tweaks.psd1 to leave out (see docs/TWEAKS.md).
+
+.PARAMETER DriverPath
+    Folder of .inf drivers injected into the install and Setup images.
+
+.PARAMETER Compress
+    maximum (install.esd, smallest, default) | balanced | fast | none.
+    Legacy aliases: recovery means maximum, max means balanced LZX.
+
+.PARAMETER CompressionEngine
+    Auto (pinned wimlib, DISM fallback) | Wimlib | Dism.
+
+.PARAMETER CompressionLevel
+    wimlib compression effort, 1-200 (default 100).
+
+.PARAMETER CompressionThreads
+    wimlib threads; 0 chooses automatically within memory limits.
+
+.PARAMETER Fast
+    Fast compression and no component-store cleanup (quick test builds).
+
+.PARAMETER NoPrompt
+    The ISO boots straight into Setup without "Press any key".
+
+.PARAMETER ZeroTouch
+    Fully unattended install that WIPES DISK 0 (UEFI/GPT). VMs / test machines only.
+
+.PARAMETER InteractiveOobe
+    Do not create an account; OOBE asks for a local user name.
+
+.PARAMETER User
+    Local administrator created by the answer file (default: User).
+
+.PARAMETER Password
+    Password for -User. Stored Base64-obfuscated, deleted after the first sign-in.
+
+.PARAMETER TimeZone
+    Windows time zone id (default: UTC).
+
+.PARAMETER Locale
+    Language/region/keyboard such as fr-FR (default: asked in OOBE).
+
+.PARAMETER ComputerName
+    Computer name (default: Windows picks one).
+
+.PARAMETER UnattendFile
+    Use your own answer file instead of the generated one.
+
+.PARAMETER Browser
+    None (default), Firefox or Chrome, installed at the first sign-in.
+
+.PARAMETER Payload
+    Stage payload\packages\*.cmd / *.ps1 to run once at the end of Setup.
+
+.PARAMETER DefenderExclusion
+    Temporarily exclude the work folders from this PC's Defender scanning.
+
+.PARAMETER DryRun
+    Validate and print the plan without modifying anything.
+
+.PARAMETER Yes
+    Non-interactive: never prompt.
+
 .PARAMETER Help
     Show the full help.
 
 .NOTES
-    The remaining parameters (-Keep, -Remove, -KeepApps, -PackageList, -SkipTweak,
-    -DriverPath, -Compress, -Fast, -NoPrompt, -ZeroTouch, -InteractiveOobe, -User,
-    -Password, -TimeZone, -Locale, -ComputerName, -UnattendFile, -Browser,
-    -Payload, -DefenderExclusion, -DryRun, -Yes) behave exactly as in tiny11maker.ps1.
+    Shared parameters behave as in tiny11maker.ps1, except where noted above.
+    -LowRam, -DisableDriverUpdates and -KeepUpdateUninstall do not exist for Core.
+
+.PARAMETER UpdatePackage
+    Local .msu / .cab packages integrated offline in the given order, before any
+    removal. Core still refuses to trim WinSxS if they leave work pending.
+
+.PARAMETER OmitNetFx3Payload
+    Leave sources\sxs (~70 MB) out of the ISO (Core cannot add .NET 3.5 later anyway).
+
+.PARAMETER ShrinkBootImage
+    Rebuild boot.wim with only its Windows Setup image (bootable, maximum LZX).
+
+.PARAMETER RemoveRedundantData
+    Delete offline update downloads, temp files, archived logs and crash dumps.
 
 .EXAMPLE
     .\tiny11Coremaker.ps1 -ISO C:\iso\Win11.iso -Edition Pro -Yes
@@ -78,6 +172,10 @@ param (
     [ValidateRange(1, 200)][int]$CompressionLevel = 100,
     [ValidateRange(0, 1024)][int]$CompressionThreads = 0,
     [switch]$Fast,
+    [string[]]$UpdatePackage = @(),
+    [switch]$OmitNetFx3Payload,
+    [switch]$ShrinkBootImage,
+    [switch]$RemoveRedundantData,
     [string]$OutputIso,
     [switch]$NoPrompt,
     [switch]$ZeroTouch,
@@ -126,6 +224,7 @@ if ($WorkDirectory) {
         throw '-WorkDirectory must be an absolute folder path on a local NTFS drive.'
     }
     $ScratchRoot = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\')
+    Assert-WorkDirectoryLocation -Path $ScratchRoot
     if ($ScratchRoot -eq [IO.Path]::GetPathRoot($ScratchRoot).TrimEnd('\')) {
         throw '-WorkDirectory must be a folder, not a drive root.'
     }
@@ -169,7 +268,10 @@ $flags = (Resolve-BuildPreset -PresetName $Preset).Clone()
 foreach ($forced in 'RemoveEdge', 'RemoveWebView', 'RemoveOneDrive', 'RemoveDefender', 'RemoveCapabilities') { $flags[$forced] = $true }
 if (-not $KeepApps) { $flags['RemoveAppx'] = $true }
 $flags['DisableWindowsUpdate'] = $true
+# Defender is removed in Core, so its CPU-limit tuning is meaningless and would
+# only write policy for a component that is gone.
 $flags['TuneDefenderCpuLimit'] = $false
+# Driver updates are pointless on an image that is never serviced.
 $flags['LowRam'] = $false
 $flags['DisableDriverUpdates'] = $false
 $buildProfile = Resolve-BuildProfile -Compress $Compress -Fast:$Fast
@@ -186,6 +288,9 @@ foreach ($pathCheck in @(
 }
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path -LiteralPath $outputDir)) { throw "-OutputIso: folder '$outputDir' does not exist." }
+Assert-OutputIsoLocation -OutputIso $OutputIso
+$updatePackages = Resolve-UpdatePackageList -Path $UpdatePackage
+$updateBytes = [long](@($updatePackages | ForEach-Object { (Get-Item -LiteralPath $_).Length }) | Measure-Object -Sum).Sum
 if (-not $UnattendFile) {
     $null = New-UnattendXml -UserName $User -Password $Password -TimeZone $TimeZone -Locale $Locale `
         -ComputerName $ComputerName -ZeroTouch:$ZeroTouch -InteractiveOobe:$InteractiveOobe
@@ -236,7 +341,7 @@ Test-Prerequisites
 # Prepare the ISO writer before attaching/copying/servicing media (PR #604).
 if (-not $DryRun) { $Script:oscdimgPath = Initialize-Oscdimg }
 if (-not $WorkDirectory) { Clear-StaleBuildState }
-if ($SCRATCH -or $WorkDirectory) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
+$null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk   # default work drive included
 
 $Script:source = Resolve-WindowsSource -IsoParameter $ISO
 $DriveLetter = $Script:source.DriveLetter
@@ -244,13 +349,14 @@ Assert-SourceWorkspaceSeparation -SourceRoot "$DriveLetter\" -WorkRoot $workRoot
 $sourceImage = if (Test-Path "$DriveLetter\sources\install.wim") { "$DriveLetter\sources\install.wim" } else { "$DriveLetter\sources\install.esd" }
 $imageIndex = Select-ImageIndex -Images @(Get-WindowsImage -ImagePath $sourceImage) -Index $Index -Edition $Edition -NonInteractive:$Yes
 $info = Get-ImageInfo -ImagePath $sourceImage -Index $imageIndex
+Assert-ServicingToolsSupportImage -ImageBuild ([int]$info.Build)
 $sourceMetadata = Get-InstallImageMetadata -ImagePath $sourceImage -Index $imageIndex
 $architecture = $info.Architecture
 $languageCode = $info.Language
 Write-Host "Selected: [$imageIndex] $($info.Name) | $($info.DisplayVersion) build $($info.Version) | $architecture | $languageCode"
 if ($architecture -notin 'amd64', 'arm64') { throw "Unsupported image architecture '$architecture'." }
 
-$space = Test-SufficientScratch (Get-RequiredScratchBytes $info.SizeBytes) ([long](Get-PSDrive -Name $ScratchDisk.TrimEnd(':')).Free)
+$space = Test-SufficientScratch ((Get-RequiredScratchBytes $info.SizeBytes) + 3 * $updateBytes) ([long](Get-PSDrive -Name $ScratchDisk.TrimEnd(':')).Free)
 if ($DryRun) {
     Write-Host ""
     Write-Host "===== DRY RUN (Core) - nothing will be modified =====" -ForegroundColor Yellow
@@ -258,6 +364,8 @@ if ($DryRun) {
     Write-Host "  Preset       : $Preset (+ Core invariants: no Edge/WebView2/OneDrive/Defender/Windows Update/WinRE)"
     Write-Host "  Tweak groups : $((Get-TweakPlan -Flags $flags -Skip $SkipTweak | ForEach-Object { $_.Id }) -join ', ')"
     Write-Host "  .NET 3.5     : $([bool]$EnableNetFx3)"
+    Write-Host "  Updates      : $(if ($updatePackages.Count) { "$($updatePackages.Count) package(s), in order" } else { 'none' })"
+    Write-Host "  Media options: omit .NET 3.5 payload=$([bool]$OmitNetFx3Payload), smaller boot.wim=$([bool]$ShrinkBootImage), remove redundant data=$([bool]$RemoveRedundantData)"
     Write-Host "  Compression  : $($buildProfile.Compress) -> sources\$($buildProfile.ImageFileName)"
     Write-Host ("  Scratch      : {0} GB free on {1}, ~{2} GB needed  [{3}]" -f $space.FreeGB, $ScratchDisk, $space.RequiredGB, $(if ($space.Ok) { 'OK' } else { 'INSUFFICIENT' }))
     Write-Host "  oscdimg      : $((Find-Oscdimg).Source)"
@@ -274,16 +382,20 @@ if ($DefenderExclusion) {
     $Script:defenderExclusions = @(Add-BuildDefenderExclusion -Path @($workRoot, $mountDir))
 }
 
+Set-DismSessionOptions -LogPath (Join-Path $logDir "dism_$(Get-Date -f yyyyMMdd_HHmmss).log") -ScratchDirectory (Join-Path $ScratchRoot 'scratchdir_dism')
 Test-OfflineHiveLoading -ScratchRoot $ScratchRoot
 
 #---------[ Copy media & export the chosen edition ]---------#
 Write-Host "Copying installation media (without the install image)..."
 if (Test-Path $workRoot) { Remove-Item -Path $workRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path "$workRoot\sources" | Out-Null
+Assert-BuildNotCancelled
 Invoke-Robocopy -Source "$DriveLetter\" -Destination $workRoot -ExcludeFile @('install.wim', 'install.esd')
 $wimFilePath = "$workRoot\sources\install.wim"
 Write-Host "Exporting edition $imageIndex from $(Split-Path $sourceImage -Leaf)..."
 Export-SelectedInstallImage -Source $sourceImage -Index $imageIndex -Destination $wimFilePath -CompressionEngine $CompressionEngine
+# Export-SelectedInstallImage throws when it produces no image, but Core does not
+# add Standard's extra Test-Path check. Verified by the throw rather than a probe.
 Dismount-WindowsSource -Source $Script:source
 
 #---------[ Mount ]---------#
@@ -292,12 +404,61 @@ $null = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
 Invoke-DismChecked -Label 'Image mount' '/Mount-Image' "/ImageFile:$wimFilePath" '/Index:1' "/MountDir:$mountDir"
 Assert-MountedImage -MountPath $mountDir
 
+#---------[ Windows updates (before any removal) ]---------#
+$updateResults = @()
+if ($updatePackages.Count) {
+    Assert-BuildNotCancelled
+    $updateResults = Install-OfflineUpdatePackages -MountPath $mountDir -Packages $updatePackages -StagingRoot (Join-Path $ScratchRoot 'scratchdir_updates')
+}
+
 #---------[ Apps & capabilities ]---------#
 $apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -ImageBuild $info.Build -KeepApps:$KeepApps
 $Script:buildWarnings += $apps.Failures
 $Script:buildWarnings += Invoke-CapabilityRemovalStage -MountPath $mountDir -LanguageCode $languageCode -Core
+$Script:buildWarnings += Invoke-OptionalFeatureRemovalStage -MountPath $mountDir -Architecture $architecture
 
-#---------[ .NET 3.5 (before WinSxS is trimmed) ]---------#
+#---------[ Component packages ]---------#
+Write-Host "Removing component packages..."
+$installedPackages = @(Get-WindowsPackage -Path $mountDir | ForEach-Object { $_.PackageName })
+foreach ($packageName in (Get-CoreWindowsPackagesToRemove -Installed $installedPackages -LanguageCode $languageCode)) {
+    Write-Host "  - $packageName"
+    $rc = Invoke-Native -FilePath 'dism.exe' -ArgumentList (Add-DismSessionArguments -Arguments @("/Image:$mountDir", '/Remove-Package', "/PackageName:$packageName", '/NoRestart'))
+    if ($rc -ne 0) {
+        Write-Warning "Could not remove $packageName (dism exit $rc)."
+        $Script:buildWarnings++
+    }
+}
+
+#---------[ Edge + WebView2 program files, OneDrive, WinRE ]---------#
+Write-Host "Removing Microsoft Edge and WebView2..."
+# WebView2's WinSxS payload is NOT removed here (no -IncludeWinSxS). It is
+# removed indirectly: the WinSxS trim below keeps only matching packages, so it
+# disappears because no keep pattern matches it. Adding a WebView pattern to
+# Get-CoreWinSxSKeepPatterns would silently leave Edge's store payload behind.
+$edgeFiles = Remove-EdgeFiles -MountPath $mountDir -Architecture $architecture -IncludeWebView
+Write-Host "Removing OneDrive..."
+Remove-OneDriveFiles -MountPath $mountDir
+Write-Host "Removing WinRE..."
+$winre = "$mountDir\Windows\System32\Recovery\winre.wim"
+if (Test-Path -LiteralPath $winre) {
+    if (Remove-ImagePath -Path $winre -MountPath $mountDir) {
+        # Zero-byte placeholder: Setup validates that the recovery file exists, so
+        # deleting it outright produces a media Setup may reject. Core is already
+        # non-serviceable, so the empty file costs nothing real.
+        New-Item -Path $winre -ItemType File -Force | Out-Null
+    } else {
+        Write-Warning "Could not remove winre.wim."
+        $Script:buildWarnings++
+    }
+}
+
+#---------[ Component cleanup, then .NET 3.5 (both before the WinSxS trim) ]---------#
+# Upstream WinUI order: reset the component base FIRST, then enable .NET 3.5, so
+# /ResetBase can never drop the NetFx3 payload (closes the earlier Core/Standard
+# ResetBase divergence), and the cleanup runs on a complete store.
+if (-not $buildProfile.SkipCleanup) {
+    if (-not (Invoke-ComponentCleanup -MountPath $mountDir)) { $Script:buildWarnings++ }
+}
 if ($EnableNetFx3) {
     Write-Host "Enabling .NET Framework 3.5..."
     try {
@@ -312,121 +473,20 @@ if ($DriverPath) {
     Write-Host "Injected $driverCount driver(s) into the install image."
 }
 
-#---------[ Component packages ]---------#
-Write-Host "Removing component packages..."
-$installedPackages = @(Get-WindowsPackage -Path $mountDir | ForEach-Object { $_.PackageName })
-foreach ($packageName in (Get-CoreWindowsPackagesToRemove -Installed $installedPackages -LanguageCode $languageCode)) {
-    Write-Host "  - $packageName"
-    $rc = Invoke-Native -FilePath 'dism.exe' -ArgumentList @('/English', "/Image:$mountDir", '/Remove-Package', "/PackageName:$packageName", '/NoRestart')
-    if ($rc -ne 0) {
-        Write-Warning "Could not remove $packageName (dism exit $rc)."
-        $Script:buildWarnings++
-    }
+#---------[ WinSxS trim ]---------#
+# Core deletes component files, so any servicing still waiting for first boot
+# would be broken. Refuse instead of shipping it; nothing pending is reverted.
+$pending = Get-OfflinePendingOperations -MountPath $mountDir -IncludePackages
+if ($pending.Count) {
+    $pending | ForEach-Object { Write-Host "  pending: $_" }
+    throw "Core stopped before trimming WinSxS: the image has $($pending.Count) pending servicing operation(s) that need component files at first boot. Build without -EnableNetFx3 / updates, or build a serviceable Standard image."
 }
-
-#---------[ Edge (incl. WebView2 and its WinSxS payload), OneDrive, WinRE ]---------#
-Write-Host "Removing Microsoft Edge and WebView2..."
-Remove-EdgeFiles -MountPath $mountDir -Architecture $architecture -IncludeWebView   # WinSxS copies go with the rebuild below
-Write-Host "Removing OneDrive..."
-Remove-OneDriveFiles -MountPath $mountDir
-Write-Host "Removing WinRE..."
-$winre = "$mountDir\Windows\System32\Recovery\winre.wim"
-if (Test-Path -LiteralPath $winre) {
-    if (Remove-ImagePath -Path $winre) {
-        New-Item -Path $winre -ItemType File -Force | Out-Null   # zero-byte placeholder keeps Setup happy
-    } else {
-        Write-Warning "Could not remove winre.wim."
-        $Script:buildWarnings++
-    }
-}
-
-#---------[ WinSxS rebuild ]---------#
-Write-Host "Taking ownership of WinSxS (this takes a while)..."
-$winSxS = "$mountDir\Windows\WinSxS"
-$winSxSEdit = "$mountDir\Windows\WinSxS_edit"
-$null = Grant-AdminFullControl -Path $winSxS -Recurse
-$keepPatterns = if ($architecture -eq 'amd64') {
-    @(
-        'x86_microsoft.windows.common-controls_6595b64144ccf1df_*'
-        'x86_microsoft.windows.gdiplus_6595b64144ccf1df_*'
-        'x86_microsoft.windows.i..utomation.proxystub_6595b64144ccf1df_*'
-        'x86_microsoft.windows.isolationautomation_6595b64144ccf1df_*'
-        'x86_microsoft-windows-s..ngstack-onecorebase_31bf3856ad364e35_*'
-        'x86_microsoft-windows-s..stack-termsrv-extra_31bf3856ad364e35_*'
-        'x86_microsoft-windows-servicingstack_31bf3856ad364e35_*'
-        'x86_microsoft-windows-servicingstack-inetsrv_*'
-        'x86_microsoft-windows-servicingstack-onecore_*'
-        'amd64_microsoft.vc80.crt_1fc8b3b9a1e18e3b_*'
-        'amd64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_*'
-        'amd64_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*'
-        'amd64_microsoft.windows.common-controls_6595b64144ccf1df_*'
-        'amd64_microsoft.windows.gdiplus_6595b64144ccf1df_*'
-        'amd64_microsoft.windows.i..utomation.proxystub_6595b64144ccf1df_*'
-        'amd64_microsoft.windows.isolationautomation_6595b64144ccf1df_*'
-        'amd64_microsoft-windows-s..stack-inetsrv-extra_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-s..stack-msg.resources_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-s..stack-termsrv-extra_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-servicingstack_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-servicingstack-inetsrv_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-servicingstack-msg_31bf3856ad364e35_*'
-        'amd64_microsoft-windows-servicingstack-onecore_31bf3856ad364e35_*'
-        'Catalogs', 'FileMaps', 'Fusion', 'InstallTemp', 'Manifests'
-        'x86_microsoft.vc80.crt_1fc8b3b9a1e18e3b_*'
-        'x86_microsoft.vc90.crt_1fc8b3b9a1e18e3b_*'
-        'x86_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*'
-    )
-} else {
-    @(
-        'arm64_microsoft-windows-servicingstack-onecore_31bf3856ad364e35_*'
-        'Catalogs', 'FileMaps', 'Fusion', 'InstallTemp', 'Manifests', 'SettingsManifests', 'Temp'
-        'x86_microsoft.vc80.crt_1fc8b3b9a1e18e3b_*'
-        'x86_microsoft.vc90.crt_1fc8b3b9a1e18e3b_*'
-        'x86_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*'
-        'x86_microsoft.windows.common-controls_6595b64144ccf1df_*'
-        'x86_microsoft.windows.gdiplus_6595b64144ccf1df_*'
-        'x86_microsoft.windows.i..utomation.proxystub_6595b64144ccf1df_*'
-        'x86_microsoft.windows.isolationautomation_6595b64144ccf1df_*'
-        'arm_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*'
-        'arm_microsoft.windows.common-controls_6595b64144ccf1df_*'
-        'arm_microsoft.windows.gdiplus_6595b64144ccf1df_*'
-        'arm_microsoft.windows.i..utomation.proxystub_6595b64144ccf1df_*'
-        'arm_microsoft.windows.isolationautomation_6595b64144ccf1df_*'
-        'arm64_microsoft.vc80.crt_1fc8b3b9a1e18e3b_*'
-        'arm64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_*'
-        'arm64_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*'
-        'arm64_microsoft.windows.common-controls_6595b64144ccf1df_*'
-        'arm64_microsoft.windows.gdiplus_6595b64144ccf1df_*'
-        'arm64_microsoft.windows.i..utomation.proxystub_6595b64144ccf1df_*'
-        'arm64_microsoft.windows.isolationautomation_6595b64144ccf1df_*'
-        'arm64_microsoft-windows-servicing-adm_31bf3856ad364e35_*'
-        'arm64_microsoft-windows-servicingcommon_31bf3856ad364e35_*'
-        'arm64_microsoft-windows-servicing-onecore-uapi_31bf3856ad364e35_*'
-        'arm64_microsoft-windows-servicingstack_31bf3856ad364e35_*'
-        'arm64_microsoft-windows-servicingstack-inetsrv_31bf3856ad364e35_*'
-        'arm64_microsoft-windows-servicingstack-msg_31bf3856ad364e35_*'
-    )
-}
-Write-Host "Copying the essential WinSxS content..."
-New-Item -Path $winSxSEdit -ItemType Directory -Force | Out-Null
-foreach ($pattern in $keepPatterns) {
-    foreach ($dir in @(Get-ChildItem -Path $winSxS -Filter $pattern -Directory -ErrorAction SilentlyContinue)) {
-        Copy-Item -Path $dir.FullName -Destination (Join-Path $winSxSEdit $dir.Name) -Recurse -Force
-    }
-}
-Assert-WinSxSRebuild -Path $winSxSEdit
-Write-Host "Replacing WinSxS (this takes a while)..."
-Remove-Item -Path $winSxS -Recurse -Force -ErrorAction SilentlyContinue
-if (Test-Path -LiteralPath $winSxS) {
-    $null = Invoke-Native -FilePath 'cmd.exe' -ArgumentList @('/c', 'rmdir', '/s', '/q', "\\?\$winSxS")
-}
-if (Test-Path -LiteralPath $winSxS) {
-    # Renaming now would leave the full WinSxS in place next to the trimmed copy.
-    throw "The original WinSxS could not be deleted completely; aborting instead of shipping a broken image."
-}
-Rename-Item -LiteralPath $winSxSEdit -NewName 'WinSxS' -ErrorAction Stop
+Write-Host "Trimming WinSxS in place (native, ACL-preserving)..."
+$null = Invoke-CoreWinSxSTrim -MountPath $mountDir -Architecture $architecture
 
 #---------[ Registry ]---------#
-$tweaks = Invoke-RegistryStage -MountPath $mountDir -Flags $flags -Skip $SkipTweak -RemovedPackages $apps.Removed
+Assert-BuildNotCancelled
+$tweaks = Invoke-RegistryStage -MountPath $mountDir -Flags $flags -Skip $SkipTweak -RemovedPackages $apps.Removed -EdgeFiles $edgeFiles
 $Script:buildWarnings += $tweaks.Failures
 
 #---------[ Answer file & first-boot scripts ]---------#
@@ -440,21 +500,31 @@ Write-UnattendFile -Xml $unattendXml -Path "$mountDir\Windows\System32\Sysprep\u
 $payloadFiles = Get-Tiny11PayloadFiles -Payload:$Payload -Browser $Browser
 Install-ImagePayload -MountPath $mountDir -Commands $tweaks.FirstBoot -PackageFiles $payloadFiles.PackageFiles -FirstLogonFiles $payloadFiles.FirstLogonFiles
 
-#---------[ Cleanup, commit, export ]---------#
-if (-not $buildProfile.SkipCleanup) {
-    if (-not (Invoke-ComponentCleanup -MountPath $mountDir)) { $Script:buildWarnings++ }
-}
+$redundant = $null
+if ($RemoveRedundantData) { $redundant = Remove-OfflineRedundantData -MountPath $mountDir }
+
+#---------[ Commit, export ]---------#
+# Component cleanup already ran before .NET 3.5 and the WinSxS trim (see above).
+Assert-BuildNotCancelled
 Write-Host "Committing and unmounting the Windows image..."
 if (-not (Invoke-SafeDismountImage -Path $mountDir -Save)) {
     throw "Failed to commit/unmount the install image."
 }
+if ($updateResults.Count) {
+    $sourceMetadata = Resolve-ServicedImageExpectation -Expected $sourceMetadata -Committed (Get-InstallImageMetadata -ImagePath $wimFilePath -Index 1)
+}
+Assert-BuildNotCancelled
 $null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile -CompressionEngine $CompressionEngine -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
 Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata -RepairMissing
 
 #---------[ boot.wim, answer file, ISO ]---------#
+Assert-BuildNotCancelled
 $Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
+$bootShrink = if ($ShrinkBootImage) { Invoke-BootImageShrink -WorkRoot $workRoot } else { $null }
+$omittedNetFx3Bytes = if ($OmitNetFx3Payload) { Remove-SetupNetFx3Payload -WorkRoot $workRoot } else { [long]0 }
 Write-UnattendFile -Xml $unattendXml -Path "$workRoot\autounattend.xml"
-$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture -OscdimgPath $Script:oscdimgPath `
+Assert-BuildNotCancelled
+$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture -OscdimgPath $Script:oscdimgPath -PublishedPath ([ref]$OutputIso) `
     -Label "TINY11CORE_$($info.DisplayVersion)_$($architecture.ToUpperInvariant())" -NoPrompt:$NoPrompt
 
 $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
@@ -465,10 +535,12 @@ $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
     removedApps = $apps.Removed
     tweakGroups = $tweaks.Applied
     warnings    = $Script:buildWarnings
+    servicing   = @{ updates = $updateResults; omittedNetFx3Bytes = $omittedNetFx3Bytes; bootImage = $bootShrink
+                     redundantData = $redundant; edgeFiles = $edgeFiles; finalVersion = $sourceMetadata.Version }
 }
 
 #---------[ Cleanup & summary ]---------#
-foreach ($mountName in 'scratchdir', 'scratchdir_boot') {
+foreach ($mountName in 'scratchdir', 'scratchdir_boot', 'scratchdir_dism') {
     Remove-ScratchMountDirectory -ScratchRoot $ScratchRoot -MountName $mountName
 }
 Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue

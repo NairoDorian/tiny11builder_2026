@@ -23,6 +23,7 @@ Leave groups out with `-SkipTweak Id1,Id2`. The `When` column names the preset f
 | [HardwareBypass](#hardwarebypass) | `Always` | x | x | x | x | x |
 | [SponsoredApps](#sponsoredapps) | `DisableSponsoredApps` | x | x | x | x | x |
 | [Advertising](#advertising) | `DisableAds` | x | x | x | x | x |
+| [EdgePromotions](#edgepromotions) | `DisableAds` | x | x | x | x | x |
 | [Telemetry](#telemetry) | `DisableTelemetry` | x | x | x | x | x |
 | [ThirdPartyTelemetry](#thirdpartytelemetry) | `DisableThirdPartyTelemetry` | x | x | x | x | x |
 | [AI](#ai) | `RemoveAI` | x | x | x | x | x |
@@ -35,7 +36,7 @@ Leave groups out with `-SkipTweak Id1,Id2`. The `When` column names the preset f
 | [EdgeRemoval](#edgeremoval) | `RemoveEdge` | x | x | x | x | x |
 | [OneDriveRemoval](#onedriveremoval) | `RemoveOneDrive` | x | x | x | x | x |
 | [StoreRemoval](#storeremoval) | `RemoveStore` |  |  |  | x | x |
-| [DefenderOff](#defenderoff) | `RemoveDefender` |  |  |  | x | x |
+| [DefenderOff](#defenderoff) | `RemoveDefender` | x |  |  | x | x |
 | [DefenderCloud](#defendercloud) | `DisableDefenderCloud` |  |  | x |  |  |
 | [DefenderCpuLimit](#defendercpulimit) | `TuneDefenderCpuLimit` | x | x | x |  |  |
 | [DriverUpdates](#driverupdates) | `DisableDriverUpdates` |  |  |  |  |  |
@@ -43,11 +44,11 @@ Leave groups out with `-SkipTweak Id1,Id2`. The `When` column names the preset f
 | [LowRam](#lowram) | `LowRam` |  |  |  |  |  |
 | [DriverBlocklist](#driverblocklist) | `EnableDriverBlocklist` | x | x | x |  |  |
 | [MouseAcceleration](#mouseacceleration) | `DisableMouseAcceleration` |  | x |  |  |  |
-| [FastShutdown](#fastshutdown) | `EnableFastShutdown` |  | x | x | x | x |
+| [FastShutdown](#fastshutdown) | `EnableFastShutdown` | x | x | x | x | x |
 | [UtcClock](#utcclock) | `EnableUtcClock` |  |  |  |  |  |
 | [ZoneInformation](#zoneinformation) | `DisableZoneInformation` |  |  |  | x | x |
 | [FirewallTelemetry](#firewalltelemetry) | `BlockFirewallTelemetry` |  | x | x | x | x |
-| [UltimatePerformance](#ultimateperformance) | `EnableUltimatePerformance` |  | x |  | x | x |
+| [UltimatePerformance](#ultimateperformance) | `EnableUltimatePerformance` | x | x |  | x | x |
 
 `LowRam` and `DriverUpdates` are switched on by `-LowRam` / `-DisableDriverUpdates`; `WindowsUpdateOff` is Core-only.
 
@@ -127,6 +128,20 @@ Advertising ID, tailored experiences, Start/Settings/lock-screen suggestions and
 | `HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Mobility` | `OptedIn` | REG_DWORD | `0` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent` | `DisableWindowsSpotlightFeatures` | REG_DWORD | `1` |
 | `HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent` | `DisableSoftLanding` | REG_DWORD | `1` |
+
+## EdgePromotions
+
+Edge first-run wizard, recommendations, feedback prompts and Spotlight promotions off (when Edge is kept or reinstalled).
+
+- **When:** `DisableAds`
+- **Note:** Documented Microsoft Edge policies (learn.microsoft.com/deployedge/microsoft-edge-policies): HideFirstRunExperience, ShowRecommendationsEnabled, UserFeedbackAllowed, SpotlightExperiencesAndRecommendationsEnabled. They only matter if Edge is kept or later reinstalled. Adopted from the upstream WinUI 0.2 "edge" policy group.
+
+| Key | Value | Type | Data |
+|---|---|---|---|
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `HideFirstRunExperience` | REG_DWORD | `1` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `ShowRecommendationsEnabled` | REG_DWORD | `0` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `UserFeedbackAllowed` | REG_DWORD | `0` |
+| `HKLM\zSOFTWARE\Policies\Microsoft\Edge` | `SpotlightExperiencesAndRecommendationsEnabled` | REG_DWORD | `0` |
 
 ## Telemetry
 
@@ -309,7 +324,7 @@ Background game recording off (avoids "ms-gamingoverlay" pop-ups once Xbox Game 
 Remove Edge uninstall entries, Active Setup stub and updater services; block Edge re-installation.
 
 - **When:** `RemoveEdge`
-- **Note:** Edge WebView2 is kept unless the preset sets RemoveWebView: Widgets, Teams, Outlook and many third-party apps need it.
+- **Note:** Edge WebView2 is kept unless the preset sets RemoveWebView: Widgets, Teams, Outlook and many third-party apps need it. Uninstall entries for Edge, Edge Update and WebView2 (both registry views) are removed by the builder only after their files are confirmed gone and the entry identifies as Microsoft Corporation; otherwise they are kept and logged.
 
 | Key | Value | Type | Data |
 |---|---|---|---|
@@ -321,8 +336,6 @@ Remove Edge uninstall entries, Active Setup stub and updater services; block Edg
 
 Deleted:
 
-- key `HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge`
-- key `HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update`
 - key `HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}`
 - key `HKLM\zSOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}`
 - key `HKLM\zSYSTEM\ControlSet001\Services\edgeupdate`

@@ -1,6 +1,6 @@
 {
     "name": "PrivacyPlus",
-    "description": "Default plus telemetry firewall rules, no Defender cloud reporting/sample submission and fast shutdown; Defender stays on",
+    "description": "Default choices plus telemetry firewall rules and no Defender cloud reporting/sample submission; Defender stays on, no Ultimate Performance plan",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,

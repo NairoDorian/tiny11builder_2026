@@ -15,7 +15,9 @@
         'Export-GuiSettings',
         'Format-GuiCommandLine',
         'Format-GuiEdition',
+        'Format-GuiTip',
         'Get-GuiBuildStage',
+        'Get-GuiCancelRequestPath',
         'Get-GuiCompressionDescription',
         'Get-GuiDefaultState',
         'Get-GuiFlagInfo',
@@ -33,13 +35,16 @@
         'Invoke-PopupYesOrNo',
         'New-UiControl',
         'Read-GuiLogTail',
+        'Request-GuiBuildCancel',
         'Set-GuiTweakChoice',
+        'Show-GuiIsoDownloadDialog',
         'Show-Tiny11BuilderForm',
         'Start-GuiBuild',
         'Stop-GuiBuild',
         'Test-GuiBuildRequest',
         'Test-GuiFlagsModified',
-        'Test-GuiRemoveListModified'
+        'Test-GuiRemoveListModified',
+        'Test-GuiReservedPresetPath'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

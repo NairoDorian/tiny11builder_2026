@@ -30,6 +30,8 @@ Read [docs/WORKING_NOTES.md](docs/WORKING_NOTES.md), [the project guide](docs/PR
 | Default app prefix | `removePackage.txt`; preserve optional-utility/protected-package rules and test actual inventory matching |
 | Optional app defaults | `Get-OptionalUtilities` and resolver; update GUI/APPS and test Keep/Remove precedence |
 | Source selection / optical metadata | `lib/tiny11media.psm1`; keep first-use no-mount/no-download path, bounded XML and actual edition authority |
+| ISO recognition / download | `lib/tiny11download.psm1`, `tiny11iso.ps1`, GUI Source tab; keep it optional and informational (never block a build), Microsoft hosts only on every hop, resume only on a strong ETag; test through `scripts/test-iso-download.ps1` (fake server, no network) |
+| GUI control | Add its mouse-over text to the central `$helpTexts` table in `Show-Tiny11BuilderForm`; a test fails for any interactive control without help |
 | Native/registry/cleanup shared behavior | `lib/tiny11utils.psm1`, callers in both makers; exercise real or meaningful failure fixtures for the changed contract |
 | Image exports / metadata | Export helpers/guard; preserve data, alternate streams, security/times/hard links, integrity and actual source fields; avoid raw XML/header edits |
 | Answer files | `New-UnattendXml`; update the allow-list only for verified Windows Setup settings, plus generated x64/ARM64 references |
@@ -49,6 +51,7 @@ Run `scripts/update-generated.ps1` after changing the catalog, app/preset defini
 .\scripts\parse-check.ps1
 .\scripts\test-core-helpers.ps1
 .\scripts\test-media-progress.ps1
+.\scripts\test-iso-download.ps1
 .\scripts\test-export-pipeline.ps1
 .\scripts\update-generated.ps1 -Check
 .\scripts\linter.ps1

@@ -1,6 +1,6 @@
 {
     "name": "Gaming",
-    "description": "Default plus Ultimate Performance power plan, raw mouse input, fast shutdown and telemetry firewall rules",
+    "description": "Default choices plus Xbox/Game Bar kept, raw mouse input and telemetry firewall rules; Defender stays on",
     "debloat": {
         "removeAppx": true,
         "removeCapabilities": true,

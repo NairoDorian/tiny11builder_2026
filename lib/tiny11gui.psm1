@@ -23,8 +23,13 @@
                        build itself: live log, stage progress, cancel + cleanup
 
     The build runs as a separate, hidden, non-interactive PowerShell process
-    of the GUI's own edition (powershell.exe or pwsh.exe, builder + -Yes); its output is streamed into the window. The window never
-    reads ISO metadata through a file stream without attaching a host volume.
+    of the GUI's own edition (powershell.exe or pwsh.exe, builder + -Yes); its
+    output is streamed into the window.
+
+    Edition metadata is read straight out of the ISO file stream by
+    lib\tiny11media.psm1 (bundled DiscUtils) with no mount, download or cache, so
+    the edition list is available before anything is attached. Selecting a source
+    drive letter reads its sources\install.wim|install.esd directly instead.
 
     The pure parts (flag metadata, state -> builder arguments, validation,
     tweak toggling, progress parsing) are separate functions covered by
@@ -37,8 +42,12 @@ Add-Type -AssemblyName System.Drawing
 $Script:AppTitle = 'Tiny11 Builder - Ultimate Edition'
 $Script:GuiRepoRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
 Import-Module (Join-Path $PSScriptRoot 'tiny11media.psm1') -DisableNameChecking
+# Optional ISO recognition/download helpers (no admin, no build dependency).
+Import-Module (Join-Path $PSScriptRoot 'tiny11download.psm1') -DisableNameChecking
 
 # Flags the Core builder forces on regardless of the preset (mirrors tiny11Coremaker.ps1).
+# Core also forces DisableWindowsUpdate and clears TuneDefenderCpuLimit; those are
+# handled separately below, so this list is only the always-true additions.
 $Script:CoreForcedFlags = @('RemoveEdge', 'RemoveWebView', 'RemoveOneDrive', 'RemoveDefender', 'RemoveCapabilities')
 
 #======================================================================
@@ -76,15 +85,32 @@ function Get-GuiFlagInfo {
 function Get-GuiPresetDescription {
     param([string]$Preset)
     switch ($Preset) {
-        'Default'     { 'Balanced: removes bloat, Edge, OneDrive and AI; keeps Store, Defender and WebView2.' }
-        'Gaming'      { 'Default + keeps Xbox/Game Bar, Ultimate Performance, raw mouse, fast shutdown, telemetry firewall rules.' }
-        'PrivacyPlus' { 'Default + telemetry firewall rules, no Defender cloud reporting, fast shutdown. Defender stays on.' }
+        'Default'     { 'Balanced: removes bloat, Edge, OneDrive, AI and Defender; Ultimate Performance, fast shutdown; keeps Store and WebView2.' }
+        'Gaming'      { 'Default + keeps Xbox/Game Bar, raw mouse, telemetry firewall rules. Defender stays on.' }
+        'PrivacyPlus' { 'Default + telemetry firewall rules, no Defender cloud reporting. Defender stays on; no Ultimate Performance.' }
         'Minimal-VM'  { 'Smallest footprint for lab VMs: also removes Store, WebView2 and Defender (no antivirus).' }
         default       { 'Custom flags.' }
     }
 }
 
+function Test-GuiReservedPresetPath {
+    # True when a save target would replace one of the four tracked built-in
+    # presets. A GUI save once overwrote presets\default.json this way and
+    # silently changed every later build's Default.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$RepoRoot
+    )
+    $presetDir = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'presets')).TrimEnd('\')
+    $full = [IO.Path]::GetFullPath($Path)
+    $leaf = [IO.Path]::GetFileName($full)
+    return ((Split-Path -Parent $full).TrimEnd('\') -ieq $presetDir) -and
+        (@('default.json', 'gaming.json', 'minimal-vm.json', 'privacyplus.json') -contains $leaf.ToLowerInvariant())
+}
+
 function Get-GuiCompressionDescription {
+    # Prose twin of the table in Resolve-BuildProfile. 'recovery' and 'max' are
+    # legacy CLI aliases the GUI never offers, so they get no description here.
     param([string]$Compress)
     switch ($Compress) {
         'maximum' { 'install.esd (solid LZMS): smallest ISO; uses available CPUs within memory limits.' }
@@ -139,6 +165,11 @@ function Get-GuiDefaultState {
         Browser            = 'None'
         Payload            = $false
         DefenderExclusion  = $false
+        UpdatePackages     = @()
+        OmitNetFx3Payload  = $false
+        ShrinkBootImage    = $false
+        RemoveRedundantData = $false
+        KeepUpdateUninstall = $false
     }
 }
 
@@ -252,9 +283,15 @@ function ConvertTo-GuiBuildRequest {
     if ($State.Browser -and $State.Browser -ne 'None') { $a.Browser = $State.Browser }
     if ($State.Payload) { $a.Payload = $true }
     if ($State.DefenderExclusion) { $a.DefenderExclusion = $true }
+    if (@($State.UpdatePackages | Where-Object { $_ }).Count) { $a.UpdatePackage = @($State.UpdatePackages | Where-Object { $_ }) }
+    if ($State.OmitNetFx3Payload) { $a.OmitNetFx3Payload = $true }
+    if ($State.ShrinkBootImage) { $a.ShrinkBootImage = $true }
+    if ($State.RemoveRedundantData) { $a.RemoveRedundantData = $true }
     if (-not $isCore) {
         if ($State.Flags.LowRam) { $a.LowRam = $true }
         if ($State.Flags.DisableDriverUpdates) { $a.DisableDriverUpdates = $true }
+        # Core always resets the component base, so this exists only for Standard.
+        if ($State.KeepUpdateUninstall -and -not $State.Fast) { $a.KeepUpdateUninstall = $true }
     }
     if ($State.DryRun) { $a.DryRun = $true }
     $a.Yes = $true
@@ -302,6 +339,26 @@ function Test-GuiBuildRequest {
         & $add 'Error' 'Choose where to save the ISO (Source tab).'
     }
     if ($State.DriverPath -and -not (Test-Path -LiteralPath $State.DriverPath)) { & $add 'Error' "Driver folder not found: $($State.DriverPath)" }
+    $updates = @($State.UpdatePackages | Where-Object { $_ })
+    if ($updates.Count) {
+        try { $null = Resolve-UpdatePackageList -Path $updates } catch { & $add 'Error' ($_.Exception.Message -replace '^-UpdatePackage: ', 'Windows update package: ') }
+        & $add 'Info' "$($updates.Count) Windows update package(s) are integrated in the listed order before any removal."
+        if ($State.Builder -eq 'Core') { & $add 'Warning' 'Core refuses to trim WinSxS if an update leaves work pending until first boot.' }
+    }
+    if ($State.OmitNetFx3Payload -and $State.Builder -ne 'Core' -and -not $State.EnableNetFx3) {
+        & $add 'Info' '.NET 3.5 setup files are left out of the ISO: enabling .NET 3.5 later needs other media or Windows Update.'
+    }
+    if ($State.KeepUpdateUninstall -and $State.Builder -ne 'Core' -and -not $State.Fast) {
+        & $add 'Info' 'Component cleanup runs without /ResetBase: updates stay uninstallable; the image is larger.'
+    }
+    if (-not $State.DryRun) {
+        try {
+            $tools = Get-BuildToolReadiness
+            if (-not $tools.OscdimgReady) { & $add 'Warning' 'oscdimg (ISO writer) is not on this PC: the build downloads it once at the start, so internet is needed. "Prepare offline tools" fetches it now.' }
+            elseif (-not $tools.WimlibReady -and $State.CompressionEngine -ne 'Dism') { & $add 'Info' 'wimlib is not cached: it is downloaded at first use, or DISM compresses instead when offline.' }
+            else { & $add 'Info' 'Offline-ready: the ISO writer and compressor are on this PC; no internet is needed to build.' }
+        } catch { Write-Verbose "Tool readiness: $_" }
+    }
     if ($State.PresetFile -and -not (Test-Path -LiteralPath $State.PresetFile)) { & $add 'Warning' "Preset file not found: $($State.PresetFile) (the flags shown are used)." }
 
     $f = $State.Flags
@@ -384,13 +441,14 @@ function Get-GuiBuildStage {
         ,@('Removing Microsoft Edge', 34, 'Removing Edge')
         ,@('Removing OneDrive', 36, 'Removing OneDrive')
         ,@('Removing optional capabilities', 38, 'Removing capabilities')
-        ,@('Enabling .NET Framework 3.5', 42, 'Enabling .NET 3.5')
-        ,@('Removing component packages', 44, 'Removing component packages')
-        ,@('Removing WinRE', 46, 'Removing WinRE')
-        ,@('Taking ownership of WinSxS', 48, 'Rebuilding WinSxS')
-        ,@('Loading the image registry', 55, 'Applying registry tweaks')
-        ,@('Removing telemetry scheduled tasks', 60, 'Removing telemetry tasks')
-        ,@('Cleaning up the component store', 64, 'Cleaning the component store')
+        ,@('Removing legacy optional features', 41, 'Removing optional features')
+        ,@('Removing component packages', 42, 'Removing component packages')
+        ,@('Removing WinRE', 44, 'Removing WinRE')
+        ,@('Cleaning up the component store', 45, 'Cleaning the component store')
+        ,@('Enabling .NET Framework 3.5', 55, 'Enabling .NET 3.5')
+        ,@('Trimming WinSxS', 56, 'Trimming WinSxS')
+        ,@('Loading the image registry', 58, 'Applying registry tweaks')
+        ,@('Removing telemetry scheduled tasks', 62, 'Removing telemetry tasks')
         ,@('Committing and unmounting', 74, 'Saving the image')
         ,@('Exporting the final image', 78, 'Compressing the image')
         ,@('Patching boot.wim', 90, 'Patching Windows Setup')
@@ -406,12 +464,23 @@ function Get-GuiBuildStage {
 
 function Get-GuiStepProgress {
     # Per-step values are measured; the overall percentage is a stage estimate.
+    # $ranges maps every stage id emitted by Write-BuildProgress onto a window of
+    # the overall bar. Two things to know before editing this table:
+    #   - A stage id missing here yields $null and shows no progress at all, so a
+    #     new -Stage in tiny11utils.psm1 must be added below or it becomes silent.
+    #   - payload=(64,66) overlaps telemetry=(62,66) and is currently unreachable:
+    #     no Write-BuildProgress -Stage payload call exists, and the legacy text
+    #     path never maps to it either. Kept deliberately rather than deleted, so a
+    #     future payload stage lands in the correct window.
+    # checks/drivers/components/winre/winsxs are reachable only through the legacy
+    # text mapper below, never from the structured protocol.
+    # OverallPercent is capped at 99; only finishBuild shows a completed 100.
     param([string]$Line, $CurrentStage)
     $ranges = @{
-        checks=@(2,5); copy=@(8,12); edition=@(12,22); mount=@(22,26)
-        apps=@(26,34); edge=@(34,36); onedrive=@(36,38); capabilities=@(38,42)
-        drivers=@(42,44); components=@(44,46); winre=@(46,48); winsxs=@(48,55)
-        registry=@(55,60); telemetry=@(60,64); payload=@(61,64); cleanup=@(64,74)
+        checks=@(2,5); copy=@(8,12); edition=@(12,22); mount=@(22,25); updates=@(25,26)
+        apps=@(26,34); edge=@(34,36); onedrive=@(36,38); capabilities=@(38,41); features=@(41,42)
+        components=@(42,44); winre=@(44,45); cleanup=@(45,55); drivers=@(55,56); winsxs=@(56,58)
+        registry=@(58,62); telemetry=@(62,66); payload=@(64,66)
         commit=@(74,78); compress=@(78,90); boot=@(90,95); iso=@(95,99); hash=@(99,100)
     }
     $stage=$null; $percent=-1; $label=$null
@@ -424,7 +493,7 @@ function Get-GuiStepProgress {
     } else {
         $legacy=Get-GuiBuildStage -Line $Line
         if($legacy) {
-            $stage=switch($legacy.Percent){2{'checks'};5{'checks'};8{'copy'};12{'edition'};22{'mount'};26{'apps'};34{'edge'};36{'onedrive'};38{'capabilities'};42{'drivers'};44{'components'};46{'winre'};48{'winsxs'};55{'registry'};60{'telemetry'};64{'cleanup'};74{'commit'};78{'compress'};90{'boot'};95{'iso'};default{$null}}
+            $stage=switch($legacy.Percent){2{'checks'};5{'checks'};8{'copy'};12{'edition'};22{'mount'};26{'apps'};34{'edge'};36{'onedrive'};38{'capabilities'};41{'features'};42{'components'};44{'winre'};45{'cleanup'};55{'drivers'};56{'winsxs'};58{'registry'};62{'telemetry'};74{'commit'};78{'compress'};90{'boot'};95{'iso'};default{$null}}
             if(-not $stage){return $null}; $label=$legacy.Label
         } elseif ($CurrentStage -and $CurrentStage.Id -in 'edition','mount','cleanup','commit','compress','iso','hash') {
             # Limit parsing to native progress lines; policy descriptions such
@@ -452,6 +521,10 @@ function Get-GuiLineKind {
 
 function Export-GuiSettings {
     # Saves the window state (never the password) as JSON.
+    # Excluded keys are deliberate: the two password fields must never be written,
+    # and ScratchFreeBytes is a computed value injected by the source-picker read
+    # rather than something the user chose, so persisting it would freeze a stale
+    # free-space figure into the next session.
     param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$State, [Parameter(Mandatory = $true)][string]$Path)
     $copy = [ordered]@{}
     foreach ($k in $State.Keys) { if ($k -notin 'Password', 'PasswordConfirm', 'ScratchFreeBytes') { $copy[$k] = $State[$k] } }
@@ -462,6 +535,10 @@ function Export-GuiSettings {
 function Import-GuiSettings {
     # Loads settings saved by Export-GuiSettings on top of the defaults;
     # unknown or missing fields are ignored.
+    # Note SettingsVersion is written but never checked, so there is no
+    # forward-compatibility path yet. A malformed Compress value does not fail
+    # softly either: Resolve-BuildProfile below throws, and the only caller
+    # discards the whole file back to defaults.
     param([Parameter(Mandatory = $true)][string]$Path)
     $state = Get-GuiDefaultState
     $json = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
@@ -541,7 +618,25 @@ exit $code
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.WorkingDirectory = Split-Path -Parent $ScriptPath
+    # Safe cancellation: the builder polls this file at stage boundaries.
+    $cancelFile = Get-GuiCancelRequestPath -WorkDir $WorkDir
+    if (Test-Path -LiteralPath $cancelFile) { Remove-Item -LiteralPath $cancelFile -Force }
+    $psi.EnvironmentVariables['TINY11_CANCEL_FILE'] = $cancelFile
     return [System.Diagnostics.Process]::Start($psi)
+}
+
+function Get-GuiCancelRequestPath {
+    # One request file per GUI process and work folder.
+    param([Parameter(Mandatory = $true)][string]$WorkDir)
+    return (Join-Path ([IO.Path]::GetFullPath($WorkDir)) "gui-cancel-$PID.request")
+}
+
+function Request-GuiBuildCancel {
+    # Asks the builder to stop at its next safe point. It never interrupts a
+    # running DISM mount/commit/export; the builder's trap then discards the
+    # mounted image and unloads its hives.
+    param([Parameter(Mandatory = $true)][string]$CancelFile)
+    [IO.File]::WriteAllText($CancelFile, (Get-Date).ToString('o'))
 }
 
 function Read-GuiLogTail {
@@ -569,6 +664,9 @@ function Read-GuiLogTail {
 function Stop-GuiBuild {
     # Kills the builder process tree, then discards the mounted image and
     # unloads the offline hives it may have left behind.
+    # Clear-StaleBuildState is the broad sweep and can unload shared z* aliases or
+    # clear global DISM mountpoints, so it runs last and only after this build's
+    # own tree is dead. It must never run beside another servicing job.
     param($Process, [string]$ScratchDisk)
     if ($Process -and -not $Process.HasExited) {
         $null = Invoke-Native -FilePath 'taskkill.exe' -ArgumentList @('/PID', "$($Process.Id)", '/T', '/F')
@@ -585,6 +683,69 @@ function Stop-GuiBuild {
 #======================================================================
 #region Popups and small UI helpers
 #======================================================================
+
+function Format-GuiTip {
+    # Wraps tooltip text at word boundaries so a long explanation stays readable.
+    param([Parameter(Mandatory = $true)][string]$Text, [int]$Width = 90)
+    $lines = foreach ($paragraph in ($Text -split "`n")) {
+        $line = ''
+        foreach ($word in ($paragraph -split ' ')) {
+            if ($line.Length -and ($line.Length + 1 + $word.Length) -gt $Width) { $line; $line = $word }
+            else { $line = if ($line.Length) { "$line $word" } else { $word } }
+        }
+        $line
+    }
+    return ($lines -join "`n")
+}
+
+function Show-GuiIsoDownloadDialog {
+    # Asks for a direct Microsoft ISO link (copied from the official page in a
+    # browser), a destination folder and an optional expected SHA-256. Returns
+    # @{ Url; Folder; Sha256 } or $null. The link is validated before returning.
+    param($Owner, [string]$DefaultFolder = (Join-Path $env:USERPROFILE 'Downloads'))
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Download Windows 11 from a Microsoft link'
+    $dlg.ClientSize = New-Object System.Drawing.Size(640, 300)
+    $dlg.FormBorderStyle = 'FixedDialog'; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+    $dlg.StartPosition = 'CenterParent'; $dlg.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $tips = New-Object System.Windows.Forms.ToolTip; $tips.AutoPopDelay = 20000
+    $help = New-UiControl -Type Label -Parent $dlg -X 14 -Y 10 -W 612 -H 70 -Text ("1. Click 'Get Windows 11...' (Source tab) and pick the multi-edition ISO and your language on Microsoft's page.`r`n" +
+        "2. Right-click the '64-bit Download' (or Arm64) button and choose 'Copy link'.`r`n" +
+        "3. Paste it below. Only Microsoft download hosts are accepted; links expire after about 24 hours.")
+    $null = New-UiControl -Type Label -Parent $dlg -X 14 -Y 88 -W 150 -Text 'Microsoft ISO link:'
+    $tbUrl = New-UiControl -Type TextBox -Parent $dlg -X 170 -Y 85 -W 456
+    $tips.SetToolTip($tbUrl, 'https://software.download.prss.microsoft.com/... .iso?t=...  (copied from Microsoft''s page)')
+    try { $clip = [System.Windows.Forms.Clipboard]::GetText(); if ($clip -match '^https://[^\s]+\.iso(\?|$)') { $tbUrl.Text = $clip.Trim() } } catch { Write-Verbose 'No clipboard text.' }
+    $null = New-UiControl -Type Label -Parent $dlg -X 14 -Y 124 -W 150 -Text 'Save to folder:'
+    $tbFolder = New-UiControl -Type TextBox -Parent $dlg -X 170 -Y 121 -W 360 -Text $DefaultFolder
+    $btnFolder = New-UiControl -Type Button -Parent $dlg -X 536 -Y 120 -W 90 -H 25 -Text 'Browse...'
+    $tips.SetToolTip($tbFolder, 'Needs about 8 GB free (plus 1 GB margin). An interrupted download stays here as <name>.iso.part and resumes.')
+    $null = New-UiControl -Type Label -Parent $dlg -X 14 -Y 160 -W 150 -Text 'Expected SHA-256 (optional):'
+    $tbSha = New-UiControl -Type TextBox -Parent $dlg -X 170 -Y 157 -W 456 -Props @{ Font = New-Object System.Drawing.Font('Consolas', 9) }
+    $tips.SetToolTip($tbSha, 'Leave empty: the download is recognised automatically against Microsoft''s published list. If you paste a hash, a mismatch rejects the file.')
+    $note = New-UiControl -Type Label -Parent $dlg -X 14 -Y 192 -W 612 -H 56 -Text ('The download runs in the background with progress on the Source tab; you can keep configuring the build. ' +
+        'When it finishes, the ISO is selected, its editions are loaded and its authenticity is shown. Existing files are never overwritten.') -Props @{ ForeColor = [System.Drawing.Color]::DimGray }
+    $ok = New-UiControl -Type Button -Parent $dlg -X 430 -Y 258 -W 110 -H 30 -Text 'Download'
+    $cancel = New-UiControl -Type Button -Parent $dlg -X 546 -Y 258 -W 80 -H 30 -Text 'Cancel' -Props @{ DialogResult = 'Cancel' }
+    $dlg.AcceptButton = $ok; $dlg.CancelButton = $cancel
+    $tips.SetToolTip($btnFolder, 'Choose the folder that receives the ISO.')
+    $tips.SetToolTip($ok, 'Check the link and start the download in the background.')
+    $tips.SetToolTip($cancel, 'Close without downloading.')
+    $btnFolder.Add_Click({ $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.SelectedPath = $tbFolder.Text; if ($f.ShowDialog() -eq 'OK') { $tbFolder.Text = $f.SelectedPath } })
+    $ok.Add_Click({
+            try {
+                $null = Test-MicrosoftIsoUrl -Url $tbUrl.Text
+                if (-not $tbFolder.Text.Trim() -or -not [IO.Path]::IsPathRooted($tbFolder.Text.Trim())) { throw 'Choose an absolute destination folder.' }
+                if ($tbSha.Text.Trim() -and $tbSha.Text.Trim() -notmatch '^[A-Fa-f0-9]{64}$') { throw 'The expected SHA-256 must be 64 hexadecimal characters (or leave it empty).' }
+                $dlg.DialogResult = 'OK'; $dlg.Close()
+            } catch { [void][System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message, 'Check the link', 'OK', 'Warning') }
+        })
+    $null = $help, $note
+    $result = if ($Owner) { $dlg.ShowDialog($Owner) } else { $dlg.ShowDialog() }
+    $value = if ($result -eq 'OK') { @{ Url = $tbUrl.Text.Trim(); Folder = $tbFolder.Text.Trim(); Sha256 = $tbSha.Text.Trim() } } else { $null }
+    $dlg.Dispose()
+    return $value
+}
 
 function Invoke-PopupInfo {
     param([Parameter(Mandatory = $true)][string]$Title, [Parameter(Mandatory = $true)][string]$Message)
@@ -622,15 +783,31 @@ function Get-SourceEditions {
     # Read tiny WIM metadata directly from the ISO, without attaching a volume.
     param([Parameter(Mandatory = $true)][string]$Source)
     if ($Source -notmatch '^[A-Za-z]:?\\?$') { return @(Get-IsoImageEditions -Path $Source) }
+    # Drive-letter source: read the container directly. No DiscUtils is involved,
+    # which is correct because there is no optical filesystem left to parse - but
+    # it also means split SWM media is not detected here the way
+    # Get-IsoImageEditions detects it and explains clearly.
     $root = $Source.Substring(0, 1) + ':'
-        $wim = if (Test-Path "$root\sources\install.wim") { "$root\sources\install.wim" } else { "$root\sources\install.esd" }
-        if (-not (Test-Path $wim)) { throw "$root does not contain sources\install.wim or install.esd." }
+    $wim = if (Test-Path "$root\sources\install.wim") { "$root\sources\install.wim" } else { "$root\sources\install.esd" }
+    if (-not (Test-Path $wim)) { throw "$root does not contain sources\install.wim or install.esd." }
     $stream = [IO.File]::OpenRead($wim)
     try { return @(Read-WimMetadata $stream) } finally { $stream.Dispose() }
 }
 
 function Get-GuiTiming {
     # Percentages between stages are estimates; native step percentages are measured.
+    # Both ETAs are deliberately gated so a stale or too-early sample cannot
+    # produce a wild number:
+    #   step ETA - needs the percent to have moved off StartPercent, the step not
+    #              finished, >= 5 s of step time, and < 90 s since the last advance.
+    #              Without the 90 s rule a stalled stage keeps extrapolating from
+    #              an old rate; without the 5 s rule startup noise sets the rate.
+    #   total ETA- needs >= 30 s elapsed and >= 8% overall, because the overall
+    #              figure is itself a stage estimate, not a measured fraction.
+    #   $seconds is whole-stage elapsed, not time since the last percent, so the
+    #   first reading after a long stall yields a pessimistic step ETA by design.
+    # Compression, integrity and plain I/O run at very different rates, which is
+    # why the label says "rough" rather than promising a finish time.
     param([datetime]$BuildStart, [int]$OverallPercent, $StageTiming, [datetime]$Now = (Get-Date))
     $elapsed = [Math]::Max(0, ($Now - $BuildStart).TotalSeconds)
     $stepEta = $null; $totalEta = $null
@@ -650,6 +827,8 @@ function Get-GuiTiming {
 }
 
 function Format-GuiEdition {
+    # Six positional fields in a fixed order; callers render this as one line in
+    # the Source tab list. Reorder both together if this changes.
     param($Info)
     '{0}: {1}   -  {2} ({3})  {4}  {5}  {6:N1} GB' -f $Info.Index, $Info.Name, $Info.DisplayVersion, $Info.Version, $Info.Architecture, $Info.Language, ($Info.SizeBytes / 1GB)
 }
@@ -783,40 +962,48 @@ function Show-Tiny11BuilderForm {
     $tip.SetToolTip($btnLoadProfile, 'Load all settings from a profile file (passwords are never saved).')
 
     #================ Tab 1: Source ================
-    $g1 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 10 -W 868 -H 150 -Text 'Windows 11 image'
-    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 30 -W 120 -Text 'ISO file or drive:'
-    $cbSource = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 27 -W 480
+    $g1 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 6 -W 868 -H 206 -Text 'Windows 11 image'
+    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 26 -W 120 -Text 'ISO file or drive:'
+    $cbSource = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 23 -W 480 -Props @{ DropDownWidth = 712 }
     foreach ($d in (Get-SetupMediaDrives)) { [void]$cbSource.Items.Add($d) }
-    $tip.SetToolTip($cbSource, 'A Windows 11 .iso from microsoft.com, or the letter of a mounted ISO / USB stick (e.g. E:).')
-    $btnBrowseIso = New-UiControl -Type Button -Parent $g1 -X 628 -Y 26 -W 100 -H 26 -Text 'Browse...'
-    $btnLoadEditions = New-UiControl -Type Button -Parent $g1 -X 734 -Y 26 -W 118 -H 26 -Text 'Load editions' -Props @{ Font = $bold }
-    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 66 -W 120 -Text 'Edition:'
-    $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 63 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
-    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 94 -W 712 -H 32 -Text 'Load editions: reads build, architecture, language and size directly from the ISO. No mounting or cache needed.' -Props @{ ForeColor = $muted }
-    $editionProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 130 -W 712 -H 8 -Props @{ Visible = $false; Style = 'Marquee' }
+    # Windows ISOs already on this PC (Downloads / Desktop), newest first.
+    try { foreach ($found in (Get-LocalIsoCandidates)) { if (-not $cbSource.Items.Contains($found.Path)) { [void]$cbSource.Items.Add($found.Path) } } } catch { Write-Verbose "ISO scan: $_" }
+    $btnBrowseIso = New-UiControl -Type Button -Parent $g1 -X 628 -Y 22 -W 100 -H 26 -Text 'Browse...'
+    $btnLoadEditions = New-UiControl -Type Button -Parent $g1 -X 734 -Y 22 -W 118 -H 26 -Text 'Load editions' -Props @{ Font = $bold }
+    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 58 -W 125 -Text 'From Microsoft:'
+    $btnOpenPage = New-UiControl -Type Button -Parent $g1 -X 140 -Y 54 -W 170 -H 26 -Text 'Get Windows 11...' -Props @{ Font = $bold }
+    $btnDownloadLink = New-UiControl -Type Button -Parent $g1 -X 316 -Y 54 -W 170 -H 26 -Text 'Download from link...'
+    $btnVerifyIso = New-UiControl -Type Button -Parent $g1 -X 492 -Y 54 -W 150 -H 26 -Text 'Check authenticity'
+    $null = New-UiControl -Type Label -Parent $g1 -X 650 -Y 58 -W 206 -H 20 -Text 'or drop an .iso here' -Props @{ ForeColor = $muted }
+    $null = New-UiControl -Type Label -Parent $g1 -X 14 -Y 92 -W 120 -Text 'Edition:'
+    $cbEdition = New-UiControl -Type ComboBox -Parent $g1 -X 140 -Y 89 -W 712 -Props @{ DropDownStyle = 'DropDownList' }
+    $lblEditionHint = New-UiControl -Type Label -Parent $g1 -X 140 -Y 118 -W 712 -H 30 -Text 'Load editions reads build, architecture, language and size straight from the ISO (no mount, no cache).' -Props @{ ForeColor = $muted }
+    $lblAuth = New-UiControl -Type Label -Parent $g1 -X 140 -Y 150 -W 712 -H 32 -Text 'Authenticity: not checked yet (optional; never required to build).' -Props @{ ForeColor = $muted }
+    $isoProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 184 -W 712 -H 10 -Props @{ Visible = $false; Minimum = 0; Maximum = 100 }
+    $editionProgress = New-UiControl -Type ProgressBar -Parent $g1 -X 140 -Y 196 -W 712 -H 6 -Props @{ Visible = $false; Style = 'Marquee' }
 
-    $g2 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 170 -W 868 -H 110 -Text 'Builder'
-    $rbStandard = New-UiControl -Type RadioButton -Parent $g2 -X 16 -Y 26 -W 250 -Text 'Standard  (recommended)' -Props @{ Font = $bold }
-    $null = New-UiControl -Type Label -Parent $g2 -X 34 -Y 50 -W 390 -H 50 -Text 'Serviceable: Windows Update, language packs and optional features keep working. For PCs, laptops and long-lived VMs.' -Props @{ ForeColor = $muted }
-    $rbCore = New-UiControl -Type RadioButton -Parent $g2 -X 450 -Y 26 -W 250 -Text 'Core  (smallest, VM only)' -Props @{ Font = $bold }
-    $null = New-UiControl -Type Label -Parent $g2 -X 468 -Y 50 -W 390 -H 50 -Text 'NOT serviceable: no updates, no WinRE, no Defender, trimmed WinSxS. For disposable VMs and tests.' -Props @{ ForeColor = $muted }
+    $g2 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 216 -W 868 -H 96 -Text 'Builder'
+    $rbStandard = New-UiControl -Type RadioButton -Parent $g2 -X 16 -Y 22 -W 250 -Text 'Standard  (recommended)' -Props @{ Font = $bold }
+    $null = New-UiControl -Type Label -Parent $g2 -X 34 -Y 46 -W 400 -H 44 -Text 'Serviceable: Windows Update, language packs and optional features keep working. For real PCs.' -Props @{ ForeColor = $muted }
+    $rbCore = New-UiControl -Type RadioButton -Parent $g2 -X 450 -Y 22 -W 250 -Text 'Core  (smallest, VM only)' -Props @{ Font = $bold }
+    $null = New-UiControl -Type Label -Parent $g2 -X 468 -Y 46 -W 390 -H 44 -Text 'NOT serviceable: no updates, no WinRE, no Defender, trimmed WinSxS. For disposable VMs and tests.' -Props @{ ForeColor = $muted }
 
-    $g3 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 290 -W 868 -H 230 -Text 'Output'
-    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 30 -W 120 -Text 'Save ISO as:'
-    $tbOutput = New-UiControl -Type TextBox -Parent $g3 -X 140 -Y 27 -W 588
-    $btnSaveAs = New-UiControl -Type Button -Parent $g3 -X 734 -Y 26 -W 118 -H 26 -Text 'Save as...'
-    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 66 -W 120 -Text 'Work drive:'
-    $cbScratch = New-UiControl -Type ComboBox -Parent $g3 -X 140 -Y 63 -W 400 -Props @{ DropDownStyle = 'DropDownList' }
+    $g3 = New-UiControl -Type GroupBox -Parent $tabSource -X 12 -Y 316 -W 868 -H 202 -Text 'Output'
+    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 26 -W 120 -Text 'Save ISO as:'
+    $tbOutput = New-UiControl -Type TextBox -Parent $g3 -X 140 -Y 23 -W 588
+    $btnSaveAs = New-UiControl -Type Button -Parent $g3 -X 734 -Y 22 -W 118 -H 26 -Text 'Save as...'
+    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 58 -W 120 -Text 'Work drive:'
+    $cbScratch = New-UiControl -Type ComboBox -Parent $g3 -X 140 -Y 55 -W 400 -Props @{ DropDownStyle = 'DropDownList' }
     [void]$cbScratch.Items.Add('(same drive as the builder)')
     foreach ($d in $ui.Drives) { [void]$cbScratch.Items.Add($d.Label) }
-    $lblScratchHint = New-UiControl -Type Label -Parent $g3 -X 548 -Y 66 -W 305 -H 36 -Text 'NTFS, ~25 GB free. An SSD makes builds much faster.' -Props @{ ForeColor = $muted }
-    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 106 -W 120 -Text 'Compression:'
-    $cbCompress = New-UiControl -Type ComboBox -Parent $g3 -X 140 -Y 103 -W 160 -Props @{ DropDownStyle = 'DropDownList' }
+    $lblScratchHint = New-UiControl -Type Label -Parent $g3 -X 548 -Y 58 -W 305 -H 32 -Text 'NTFS, ~25 GB free; an SSD is much faster.' -Props @{ ForeColor = $muted }
+    $null = New-UiControl -Type Label -Parent $g3 -X 14 -Y 94 -W 120 -Text 'Compression:'
+    $cbCompress = New-UiControl -Type ComboBox -Parent $g3 -X 140 -Y 91 -W 160 -Props @{ DropDownStyle = 'DropDownList' }
     foreach ($c in 'maximum', 'balanced', 'fast', 'none') { [void]$cbCompress.Items.Add($c) }
-    $lblCompress = New-UiControl -Type Label -Parent $g3 -X 310 -Y 106 -W 540 -Props @{ ForeColor = $muted }
-    $chkFast = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 140 -W 700 -Text 'Quick test build: fast compression, skip the component-store cleanup (larger ISO)'
-    $chkNoPrompt = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 166 -W 700 -Text 'Boot straight into Setup (no "Press any key to boot from CD or DVD")'
-    $chkDryRunOpt = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 192 -W 700 -Text 'Dry run only: validate and show the plan, build nothing'
+    $lblCompress = New-UiControl -Type Label -Parent $g3 -X 310 -Y 94 -W 540 -Props @{ ForeColor = $muted }
+    $chkFast = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 124 -W 700 -Text 'Quick test build: fast compression, skip the component-store cleanup (larger ISO)'
+    $chkNoPrompt = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 148 -W 700 -Text 'Boot straight into Setup (no "Press any key to boot from CD or DVD")'
+    $chkDryRunOpt = New-UiControl -Type CheckBox -Parent $g3 -X 140 -Y 172 -W 700 -Text 'Dry run only: validate and show the plan, build nothing'
 
     #================ Tab 2: Preset & features ================
     $null = New-UiControl -Type Label -Parent $tabPreset -X 14 -Y 16 -W 60 -Text 'Preset:' -Props @{ Font = $bold }
@@ -913,28 +1100,46 @@ function Show-Tiny11BuilderForm {
     $tip.SetToolTip($btnSaveXml, 'Save the generated answer file, e.g. to use tiny11''s OOBE settings with Rufus or a stock ISO.')
 
     #================ Tab 6: Extras ================
-    $g6a = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 10 -W 868 -H 230 -Text 'Add to the image'
-    $chkNetFx = New-UiControl -Type CheckBox -Parent $g6a -X 14 -Y 26 -W 840 -Text 'Enable .NET Framework 3.5 (old games and tools; cannot be added later to a Core image)'
-    $null = New-UiControl -Type Label -Parent $g6a -X 14 -Y 62 -W 120 -Text 'Drivers folder:'
-    $tbDrivers = New-UiControl -Type TextBox -Parent $g6a -X 140 -Y 59 -W 480
-    $btnDrivers = New-UiControl -Type Button -Parent $g6a -X 626 -Y 58 -W 90 -H 25 -Text 'Browse...'
-    $btnDriversClear = New-UiControl -Type Button -Parent $g6a -X 722 -Y 58 -W 60 -H 25 -Text 'Clear'
-    $lblDrivers = New-UiControl -Type Label -Parent $g6a -X 140 -Y 86 -W 710 -H 20 -Text 'Every .inf below this folder goes into Windows and into Setup (e.g. Intel RST/VMD so Setup sees the disk).' -Props @{ ForeColor = $muted }
-    $null = New-UiControl -Type Label -Parent $g6a -X 14 -Y 118 -W 120 -Text 'Browser:'
-    $cbBrowser = New-UiControl -Type ComboBox -Parent $g6a -X 140 -Y 115 -W 160 -Props @{ DropDownStyle = 'DropDownList' }
+    $g6a = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 4 -W 868 -H 200 -Text 'Add to the image'
+    $chkNetFx = New-UiControl -Type CheckBox -Parent $g6a -X 14 -Y 20 -W 840 -Text 'Enable .NET Framework 3.5 (old games and tools; cannot be added later to a Core image)'
+    $null = New-UiControl -Type Label -Parent $g6a -X 14 -Y 51 -W 120 -Text 'Drivers folder:'
+    $tbDrivers = New-UiControl -Type TextBox -Parent $g6a -X 140 -Y 48 -W 480
+    $btnDrivers = New-UiControl -Type Button -Parent $g6a -X 626 -Y 47 -W 90 -H 25 -Text 'Browse...'
+    $btnDriversClear = New-UiControl -Type Button -Parent $g6a -X 722 -Y 47 -W 60 -H 25 -Text 'Clear'
+    $lblDrivers = New-UiControl -Type Label -Parent $g6a -X 140 -Y 74 -W 710 -H 20 -Text 'Every .inf below this folder goes into Windows and into Setup (e.g. Intel RST/VMD so Setup sees the disk).' -Props @{ ForeColor = $muted }
+    $null = New-UiControl -Type Label -Parent $g6a -X 14 -Y 101 -W 120 -Text 'Browser:'
+    $cbBrowser = New-UiControl -Type ComboBox -Parent $g6a -X 140 -Y 98 -W 160 -Props @{ DropDownStyle = 'DropDownList' }
     foreach ($b in 'None', 'Firefox', 'Chrome') { [void]$cbBrowser.Items.Add($b) }
-    $null = New-UiControl -Type Label -Parent $g6a -X 310 -Y 118 -W 540 -Text 'Installed silently at the first sign-in (waits for the network).' -Props @{ ForeColor = $muted }
-    $chkPayload = New-UiControl -Type CheckBox -Parent $g6a -X 14 -Y 152 -W 440 -Text 'Run my scripts from payload\packages at the end of Setup'
-    $btnPayloadOpen = New-UiControl -Type Button -Parent $g6a -X 460 -Y 150 -W 150 -H 25 -Text 'Open payload folder'
-    $lblPayload = New-UiControl -Type Label -Parent $g6a -X 32 -Y 178 -W 820 -H 40 -Props @{ ForeColor = $muted }
+    $null = New-UiControl -Type Label -Parent $g6a -X 310 -Y 101 -W 540 -Text 'Installed silently at the first sign-in (waits for the network).' -Props @{ ForeColor = $muted }
+    $chkPayload = New-UiControl -Type CheckBox -Parent $g6a -X 14 -Y 129 -W 440 -Text 'Run my scripts from payload\packages at the end of Setup'
+    $btnPayloadOpen = New-UiControl -Type Button -Parent $g6a -X 460 -Y 127 -W 160 -H 25 -Text 'Open payload folder'
+    $lblPayload = New-UiControl -Type Label -Parent $g6a -X 32 -Y 152 -W 820 -H 40 -Props @{ ForeColor = $muted }
 
-    $g6b = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 248 -W 868 -H 100 -Text 'System profile'
-    $chkLowRam = New-UiControl -Type CheckBox -Parent $g6b -X 14 -Y 26 -W 840 -Text 'Low-RAM profile for 1-2 GB PCs: fewer service hosts, no SysMain / search indexing, no animations or background apps'
-    $chkDriverUpd = New-UiControl -Type CheckBox -Parent $g6b -X 14 -Y 56 -W 840 -Text 'Do not let Windows Update install or replace device drivers'
+    $g6d = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 206 -W 868 -H 96 -Text 'Windows updates (.msu / .cab, integrated offline in this order, prerequisites first, before any removal)'
+    $lbUpdates = New-UiControl -Type ListBox -Parent $g6d -X 14 -Y 18 -W 700 -H 70 -Props @{ HorizontalScrollbar = $true; IntegralHeight = $false }
+    $btnUpdAdd = New-UiControl -Type Button -Parent $g6d -X 724 -Y 16 -W 130 -H 22 -Text 'Add packages...'
+    $btnUpdRemove = New-UiControl -Type Button -Parent $g6d -X 724 -Y 40 -W 130 -H 22 -Text 'Remove'
+    $btnUpdUp = New-UiControl -Type Button -Parent $g6d -X 724 -Y 64 -W 63 -H 22 -Text 'Up'
+    $btnUpdDown = New-UiControl -Type Button -Parent $g6d -X 791 -Y 64 -W 63 -H 22 -Text 'Down'
+    $tip.SetToolTip($lbUpdates, 'Follow each KB''s prerequisite / checkpoint order. Nothing is downloaded and folders are never scanned; each file is copied privately and hash-checked first.')
 
-    $g6c = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 356 -W 868 -H 100 -Text 'This PC (the one building the ISO)'
-    $chkDefExcl = New-UiControl -Type CheckBox -Parent $g6c -X 14 -Y 26 -W 840 -Text 'Faster build: temporarily exclude the work folders from this PC''s Defender scanning'
-    $null = New-UiControl -Type Label -Parent $g6c -X 32 -Y 52 -W 820 -H 40 -Text 'The only option that touches this PC: two folder exclusions are added before the build and removed again when it ends (or fails). Off by default.' -Props @{ ForeColor = $muted }
+    $g6e = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 306 -W 868 -H 70 -Text 'Smaller media and servicing'
+    $chkOmitNetFx = New-UiControl -Type CheckBox -Parent $g6e -X 14 -Y 18 -W 420 -Text 'Omit .NET 3.5 setup files (sources\sxs, ~70 MB)'
+    $chkShrinkBoot = New-UiControl -Type CheckBox -Parent $g6e -X 440 -Y 18 -W 420 -Text 'Smaller boot.wim: only the Windows Setup image'
+    $chkRedundant = New-UiControl -Type CheckBox -Parent $g6e -X 14 -Y 43 -W 420 -Text 'Remove update caches, temp files, old logs, dumps'
+    $chkKeepUninstall = New-UiControl -Type CheckBox -Parent $g6e -X 440 -Y 43 -W 420 -Text 'Keep updates uninstallable (no /ResetBase, larger)'
+    $tip.SetToolTip($chkOmitNetFx, '.NET 3.5 can still be enabled now (option above); adding it later then needs other matching media or Windows Update.')
+    $tip.SetToolTip($chkShrinkBoot, 'Re-exports the patched Setup image alone as a bootable, maximum-compressed boot.wim. Savings depend on the source.')
+    $tip.SetToolTip($chkRedundant, 'Allow-listed folders only. Update download/temp folders are kept when servicing is pending until first boot.')
+    $tip.SetToolTip($chkKeepUninstall, 'Standard only. Core always resets the component base.')
+
+    $g6b = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 380 -W 868 -H 66 -Text 'System profile'
+    $chkLowRam = New-UiControl -Type CheckBox -Parent $g6b -X 14 -Y 18 -W 840 -Text 'Low-RAM profile for 1-2 GB PCs: fewer service hosts, no SysMain / search indexing, no animations or background apps'
+    $chkDriverUpd = New-UiControl -Type CheckBox -Parent $g6b -X 14 -Y 41 -W 840 -Text 'Do not let Windows Update install or replace device drivers'
+
+    $g6c = New-UiControl -Type GroupBox -Parent $tabExtras -X 12 -Y 450 -W 868 -H 64 -Text 'This PC (the one building the ISO)'
+    $chkDefExcl = New-UiControl -Type CheckBox -Parent $g6c -X 14 -Y 18 -W 840 -Text 'Faster build: temporarily exclude the work folders from this PC''s Defender scanning'
+    $null = New-UiControl -Type Label -Parent $g6c -X 32 -Y 41 -W 820 -H 18 -Text 'The only option that touches this PC: two folder exclusions, removed again when the build ends or fails. Off by default.' -Props @{ ForeColor = $muted }
 
     #================ Tab 7: Build ================
     $null = New-UiControl -Type Label -Parent $tabBuild -X 14 -Y 8 -W 400 -Text 'Plan' -Props @{ Font = $bold; ForeColor = $accent }
@@ -956,6 +1161,96 @@ function Show-Tiny11BuilderForm {
     $btnOpenLogs = New-UiControl -Type Button -Parent $tabBuild -X 150 -Y 490 -W 130 -H 26 -Text 'Open logs folder'
     $btnOpenOutput = New-UiControl -Type Button -Parent $tabBuild -X 286 -Y 490 -W 150 -H 26 -Text 'Show the ISO' -Props @{ Enabled = $false }
     $btnCopyLog = New-UiControl -Type Button -Parent $tabBuild -X 442 -Y 490 -W 110 -H 26 -Text 'Copy log'
+    $btnPrepareTools = New-UiControl -Type Button -Parent $tabBuild -X 710 -Y 490 -W 170 -H 26 -Text 'Prepare offline tools'
+
+    #================ Mouse-over help for every control ================
+    # One reviewable table; Format-GuiTip wraps long lines. Keep these accurate
+    # when behavior changes (README "Using the GUI" mirrors them).
+    $tip.InitialDelay = 400; $tip.ReshowDelay = 150
+    $helpTexts = @(
+        ,@($btnLoadProfile, 'Load every setting from a profile file saved earlier. Passwords are never stored in profiles.')
+        ,@($btnSaveProfile, 'Save the settings of all tabs to a profile file to reuse later. Passwords are never written.')
+        ,@($btnReset, 'Reset every option on every tab to its default value.')
+        ,@($btnDryRun, 'Validate everything and print the build plan in the log without building anything.')
+        ,@($btnBuild, 'Start the build in the background with the settings of all tabs. Progress, time remaining and the log appear on the Build tab. On this PC only the work folders and the output ISO are written.')
+        ,@($btnClose, 'Close the window. Settings are kept for next time; a running build is cancelled safely first.')
+        ,@($cbSource, 'Your Windows 11 .iso (the default; works fully offline) or the letter of a mounted ISO / USB stick such as E:. The list also offers Windows ISOs found in your Downloads and Desktop folders, newest first.')
+        ,@($btnBrowseIso, 'Pick a Windows 11 ISO on this PC. Opens in the folder of the current ISO, or in Downloads.')
+        ,@($btnLoadEditions, 'Read the editions (Home, Pro, ...), build, architecture and language straight from the ISO without mounting it. Afterwards the ISO is compared with Microsoft''s published hashes in the background when online.')
+        ,@($btnOpenPage, 'Opens Microsoft''s official Windows 11 page (x64 or ARM64, like this PC) in your browser. Pick the ISO and language there and click Download: this window notices the finished ISO in your Downloads folder (or a link you copy, which it then downloads itself) and selects, loads and verifies it automatically. Click again to stop waiting.')
+        ,@($btnDownloadLink, 'Paste the direct .iso link copied from Microsoft''s page: the download runs here with progress, resumes after interruptions and is SHA-256-checked. Click again to stop (the partial file is kept).')
+        ,@($btnVerifyIso, 'Compute the ISO''s SHA-256 and compare it with Microsoft''s published list for the current Windows 11 release. Optional and informational: building never needs it, online or offline.')
+        ,@($lblAuth, 'Result of the optional authenticity check. "Not in the current list" usually means an older or Insider release, not a fake; the build is never blocked.')
+        ,@($cbEdition, 'The edition to build. It becomes the only image (index 1) in the new ISO. Windows 11 Pro is preselected when present.')
+        ,@($rbStandard, 'Serviceable tiny11: Windows Update, language packs and optional features keep working. Recommended for real PCs and long-lived VMs.')
+        ,@($rbCore, 'Smallest image for throw-away VMs: removes most of WinSxS, WinRE, Windows Update and Defender. It cannot be updated or repaired later.')
+        ,@($tbOutput, 'Where the finished ISO is written. An existing file is replaced only after the new ISO is verified; if it is mounted or open the build stops at the start with a message.')
+        ,@($btnSaveAs, 'Choose the folder and file name of the output ISO.')
+        ,@($cbScratch, 'Drive for the temporary work folders. It must be NTFS with roughly the free space shown; an SSD makes builds much faster. The ISO and the output can be on other drives.')
+        ,@($cbCompress, 'maximum: install.esd, smallest ISO, slowest (default). balanced: install.wim (LZX). fast: install.wim (XPRESS). none: uncompressed, largest.')
+        ,@($chkFast, 'For quick tests: fast compression and no component-store cleanup. The ISO is noticeably larger.')
+        ,@($chkNoPrompt, 'The ISO starts Setup without "Press any key to boot from CD or DVD". On a real PC Setup then starts every time the stick is booted.')
+        ,@($chkDryRunOpt, 'Only validate and show the plan; nothing is built (same as the Dry run button).')
+        ,@($cbPreset, 'Starting point for every feature checkbox. Default: removes Defender, keeps Store. Gaming: keeps Xbox and Defender. PrivacyPlus: keeps Defender, stricter privacy. Minimal-VM: also removes Store, WebView2 and Defender. Changing a box makes a custom preset.')
+        ,@($btnPresetReset, 'Undo your checkbox changes and return to the selected preset.')
+        ,@($btnPresetLoad, 'Load a preset .json file. Missing flags are taken from Default.')
+        ,@($btnPresetSave, 'Save the current checkboxes as a preset .json file. The four built-in preset files are protected and cannot be overwritten.')
+        ,@($chkKeepApps, 'Keep every provisioned app. Edge, OneDrive, capability and registry choices still apply.')
+        ,@($lvApps, 'App package prefixes to remove. Only apps present in the chosen image are removed; a prefix missing from this Windows build is normal. Frameworks, the Store, winget and codecs are protected.')
+        ,@($btnAddApp, 'Add another package-name prefix to remove (for example Vendor.AppName).')
+        ,@($btnAppsAll, 'Check every app in the list.')
+        ,@($btnAppsNone, 'Uncheck every app in the list (nothing removed from it).')
+        ,@($btnAppsDefault, 'Restore the default removal list (removePackage.txt).')
+        ,@($btnAppsImport, 'Load a removal list from a text file (one prefix per line).')
+        ,@($btnAppsExport, 'Save the current removal list to a text file.')
+        ,@($clbUtil, 'Optional utilities: checked = keep, unchecked = remove.')
+        ,@($lvTweaks, 'Registry policy groups applied to the offline image (data\tweaks.psd1). Uncheck a group to skip it; checking a greyed group turns on the preset flag it needs. Select a row to see every value it writes.')
+        ,@($tbTweakDetail, 'Every registry value, service change and first-boot command of the selected group.')
+        ,@($btnTweaksAll, 'Apply every group whose preset condition is met (clears all skips).')
+        ,@($rbLocalAdmin, 'Create this local administrator automatically; Setup skips the Microsoft-account and network pages.')
+        ,@($tbUser, 'Name of the local administrator created during Setup.')
+        ,@($tbPassword, 'Optional. Stored Base64-obfuscated (not encrypted) in the answer file, which is deleted after the first sign-in. Never saved in profiles.')
+        ,@($tbPassword2, 'Type the password again to confirm it.')
+        ,@($chkShowPw, 'Show the password characters while typing.')
+        ,@($rbOobe, 'Do not create an account: Windows asks for a local user name during setup (OOBE).')
+        ,@($cbTimeZone, 'Time zone of the installed Windows.')
+        ,@($btnTzHere, 'Use this PC''s time zone.')
+        ,@($tbComputer, 'Optional computer name (up to 15 characters). Empty: Windows picks DESKTOP-XXXXXXX.')
+        ,@($chkZeroTouch, 'Fully unattended install that ERASES DISK 0 without asking (UEFI/GPT). Only for VMs or dedicated test machines.')
+        ,@($tbUnattend, 'Use your own autounattend.xml instead of the generated one. Its image index is pointed at the single exported edition.')
+        ,@($btnUnattendBrowse, 'Choose a custom answer file.')
+        ,@($btnUnattendClear, 'Stop using a custom answer file (the generated one is used).')
+        ,@($btnPreviewXml, 'Show the answer file generated from the settings on this tab.')
+        ,@($chkNetFx, 'Enable .NET Framework 3.5 from the ISO''s own sources\sxs (old games and tools). A Core image cannot add it later.')
+        ,@($tbDrivers, 'Folder of .inf drivers injected into Windows and into Setup (for example Intel RST/VMD so Setup can see the disk).')
+        ,@($btnDrivers, 'Choose the driver folder.')
+        ,@($btnDriversClear, 'Do not inject drivers.')
+        ,@($cbBrowser, 'Install Firefox or Chrome silently at the first sign-in. That download happens on the new PC, not during the build.')
+        ,@($chkPayload, 'Copy your .cmd / .ps1 scripts from payload\packages into the image; they run once as SYSTEM at the end of Setup.')
+        ,@($btnPayloadOpen, 'Open the payload\packages folder.')
+        ,@($lbUpdates, 'Windows update packages integrated offline, top to bottom, before any removal. Each file is copied privately and SHA-256-checked; nothing is downloaded and folders are never scanned.')
+        ,@($btnUpdAdd, 'Add local .msu / .cab packages. Add prerequisites (for example checkpoint cumulative updates) first.')
+        ,@($btnUpdRemove, 'Remove the selected package from the list. The file itself is not touched.')
+        ,@($btnUpdUp, 'Integrate the selected package earlier.')
+        ,@($btnUpdDown, 'Integrate the selected package later.')
+        ,@($chkOmitNetFx, 'Leave sources\sxs (~70 MB) out of the ISO. .NET 3.5 can still be enabled now (option above); adding it later then needs other matching media or Windows Update.')
+        ,@($chkShrinkBoot, 'Re-export the patched Windows Setup image alone as a bootable, maximum-compressed boot.wim. Setup and its drivers are kept; savings depend on the source (often 10-20 MB).')
+        ,@($chkRedundant, 'Empty allow-listed offline folders: update downloads, temp files, archived CBS/DISM logs, crash dumps and error-report queues. Update/temp folders are kept while servicing is pending.')
+        ,@($chkKeepUninstall, 'Standard only: component cleanup without /ResetBase, so installed updates stay uninstallable. The image is larger. Core always resets the base.')
+        ,@($chkLowRam, 'Extra tweaks for 1-2 GB RAM PCs: fewer service hosts, no SysMain or search indexing, no animations or background apps.')
+        ,@($chkDriverUpd, 'Stop Windows Update from installing or replacing device drivers on the new PC.')
+        ,@($chkDefExcl, 'Faster build: the two work folders are excluded from this PC''s Defender scanning during the build and the exclusions are removed afterwards. The only option that changes this PC.')
+        ,@($tbSummary, 'Summary of what this build will do.')
+        ,@($lvChecks, 'Errors block the build; warnings and notes explain consequences. Also shows whether the build tools are ready for offline use.')
+        ,@($tbCommand, 'The equivalent command line for tiny11maker.ps1 / tiny11Coremaker.ps1 (the password is masked).')
+        ,@($btnCopyCmd, 'Copy the command line to the clipboard.')
+        ,@($btnCancel, 'First click: cancel safely at the next safe point (a running DISM step finishes first, then the mounted image is discarded). Second click: force stop, only if the build hangs.')
+        ,@($btnOpenLogs, 'Open the logs folder: build transcripts, DISM logs (dism_*.log) and GUI logs.')
+        ,@($btnOpenOutput, 'Show the finished ISO in Explorer.')
+        ,@($btnCopyLog, 'Copy the build log to the clipboard.')
+        ,@($btnPrepareTools, 'Download and verify oscdimg (ISO writer) and wimlib (best compression) now, so later builds work fully offline. Not needed when Checks reports them as ready.')
+    )
+    foreach ($pair in $helpTexts) { if ($pair[0]) { $tip.SetToolTip($pair[0], (Format-GuiTip -Text $pair[1])) } }
 
     $ui.Controls = @{
         Source = $cbSource; Edition = $cbEdition; EditionHint = $lblEditionHint; Standard = $rbStandard; Core = $rbCore
@@ -965,6 +1260,7 @@ function Show-Tiny11BuilderForm {
         LocalAdmin = $rbLocalAdmin; Oobe = $rbOobe; User = $tbUser; Password = $tbPassword; Password2 = $tbPassword2; Locale = $cbLocale; TimeZone = $cbTimeZone
         Computer = $tbComputer; ZeroTouch = $chkZeroTouch; Unattend = $tbUnattend; NetFx = $chkNetFx; Drivers = $tbDrivers; DriversHint = $lblDrivers; Browser = $cbBrowser
         Payload = $chkPayload; PayloadHint = $lblPayload; LowRam = $chkLowRam; DriverUpd = $chkDriverUpd; DefExcl = $chkDefExcl
+        Updates = $lbUpdates; OmitNetFx = $chkOmitNetFx; ShrinkBoot = $chkShrinkBoot; Redundant = $chkRedundant; KeepUninstall = $chkKeepUninstall
         Summary = $tbSummary; Checks = $lvChecks; Command = $tbCommand; Progress = $progress; StepProgress = $stepProgress; Stage = $lblStage; Elapsed = $lblElapsed; Log = $rtbLog
         Cancel = $btnCancel; OpenOutput = $btnOpenOutput; Build = $btnBuild; DryRunBtn = $btnDryRun; LoadProfile = $btnLoadProfile; SaveProfile = $btnSaveProfile; Reset = $btnReset
     }
@@ -1147,6 +1443,12 @@ function Show-Tiny11BuilderForm {
         & $selectCombo $c.Browser ([string]$s.Browser)
         $c.Payload.Checked = [bool]$s.Payload
         $c.DefExcl.Checked = [bool]$s.DefenderExclusion
+        $c.Updates.Items.Clear()
+        foreach ($package in @($s.UpdatePackages | Where-Object { $_ })) { [void]$c.Updates.Items.Add([string]$package) }
+        $c.OmitNetFx.Checked = [bool]$s.OmitNetFx3Payload
+        $c.ShrinkBoot.Checked = [bool]$s.ShrinkBootImage
+        $c.Redundant.Checked = [bool]$s.RemoveRedundantData
+        $c.KeepUninstall.Checked = [bool]$s.KeepUpdateUninstall
         $ui.Loading = $false
         & $syncFlags
         & $syncApps
@@ -1205,6 +1507,14 @@ function Show-Tiny11BuilderForm {
         if ($s.Payload) { $extras += 'payload' }
         if ($s.Flags.LowRam) { $extras += 'low-RAM' }
         if ($s.Flags.DisableDriverUpdates) { $extras += 'no WU drivers' }
+        $updateCount = @($s.UpdatePackages | Where-Object { $_ }).Count
+        if ($updateCount) { $extras += "$updateCount update package(s)" }
+        $media = @()
+        if ($s.OmitNetFx3Payload) { $media += 'no sxs' }
+        if ($s.ShrinkBootImage) { $media += 'small boot.wim' }
+        if ($s.RemoveRedundantData) { $media += 'no caches/logs' }
+        if ($s.KeepUpdateUninstall -and $s.Builder -ne 'Core' -and -not $s.Fast) { $media += 'updates uninstallable' }
+        if ($media.Count) { $extras += $media }
         $summary = @(
             "Builder : $($s.Builder)$(if ($s.DryRun) { ' (DRY RUN)' })"
             "Source  : $(if ($s.Source) { $s.Source } else { '-' })"
@@ -1258,7 +1568,8 @@ function Show-Tiny11BuilderForm {
             $ui.Controls.Elapsed.Text = 'Elapsed ' + (Format-Elapsed ((Get-Date) - $ui.BuildStart))
         }
         & $setBusy $false
-        $iso = $ui.State.OutputIso
+        # A locked old ISO makes the builder publish under a dated sibling name.
+        $iso = if ($ui.PublishedIso) { $ui.PublishedIso } else { $ui.State.OutputIso }
         if ($code -eq 0 -and -not $ui.CurrentDryRun -and (Test-Path -LiteralPath $iso)) {
             $ui.Controls.Progress.Value = 100
             $ui.Controls.StepProgress.Value = 100
@@ -1276,10 +1587,17 @@ function Show-Tiny11BuilderForm {
             $ui.Controls.StepProgress.Value = 100
             $ui.Controls.Stage.Text = 'Dry run finished - see the plan in the log.'
             $ui.Controls.Stage.ForeColor = [System.Drawing.Color]::DarkGreen
+        } elseif ($ui.CancelRequested) {
+            $ui.Controls.Stage.Text = 'Cancelled safely - the mounted image was discarded; see the log.'
+            $ui.Controls.Stage.ForeColor = $danger
         } else {
             $ui.Controls.Stage.Text = "Build failed (exit code $code) - see the log."
             $ui.Controls.Stage.ForeColor = $danger
         }
+        $ui.CancelRequested = $false
+        $ui.Controls.Cancel.Text = 'Cancel build'
+        if ($ui.CancelFile -and (Test-Path -LiteralPath $ui.CancelFile)) { Remove-Item -LiteralPath $ui.CancelFile -Force -ErrorAction SilentlyContinue }
+        if ($ui.CloseAfterBuild) { $ui.CloseAfterBuild = $false; $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null; return }
         if ($ui.AutoRun) {
             if ($ui.PreviewPath) {
                 $ui.Form.ActiveControl = $ui.Controls.Log
@@ -1305,6 +1623,13 @@ function Show-Tiny11BuilderForm {
         if ($ui.State.ZeroTouch -and -not $dryRun -and -not $ui.Quiet) {
             if (-not (Invoke-PopupYesOrNo -Title 'Zero-touch ISO' -Message "This ISO will ERASE DISK 0 without asking on whatever machine boots it.`n`nBuild it anyway?")) { return }
         }
+        if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') {
+            if (-not $ui.Quiet) { Invoke-PopupError -Title 'Download running' -Message 'Wait for the ISO download to finish (or stop it on the Source tab) before building.' }
+            return
+        }
+        # The optional authenticity check reads the whole ISO; never compete with the build for the disk.
+        if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'verify') { & $stopIsoWorker 'verify'; $lblAuth.Text = 'Authenticity: check stopped because a build started (optional).' }
+        $ui.PublishedIso = $null
         $state = $ui.State
         $savedDryRun = [bool]$state.DryRun
         $state.DryRun = $dryRun -or $savedDryRun
@@ -1332,6 +1657,9 @@ function Show-Tiny11BuilderForm {
         & $setBusy $true
         try {
             $ui.Process = Start-GuiBuild -ScriptPath $scriptPath -Arguments $req.Arguments -LogPath $logPath
+            $ui.CancelFile = Get-GuiCancelRequestPath -WorkDir (Split-Path -Parent $logPath)
+            $ui.CancelRequested = $false
+            $ui.Controls.Cancel.Text = 'Cancel build'
         } catch {
             & $setBusy $false
             Invoke-PopupError -Title 'Could not start the builder' -Message $_.Exception.Message
@@ -1353,6 +1681,7 @@ function Show-Tiny11BuilderForm {
             $exitCode = $null
             foreach ($line in $lines) {
                 if ($line -match '^__TINY11_EXIT__ (-?\d+)') { $exitCode = [int]$Matches[1]; continue }
+                if ($line -match 'The verified ISO was saved as (.+\.iso)\.\s*$') { $ui.PublishedIso = $Matches[1] }
                 if ($line -notmatch '^__TINY11_PROGRESS__ ') { & $appendLog $line }
                 $stage = Get-GuiStepProgress -Line $line -CurrentStage $ui.CurrentStage
                 if ($stage) {
@@ -1395,15 +1724,227 @@ function Show-Tiny11BuilderForm {
             }
         })
 
+    $setSourceAndLoad = {
+        param([string]$path)
+        if (-not $cbSource.Items.Contains($path)) { [void]$cbSource.Items.Insert(0, $path) }
+        $ui.Controls.Source.Text = $path; $ui.State.Source = $path
+        $btnLoadEditions.PerformClick()
+    }
     $btnBrowseIso.Add_Click({
             $dlg = New-Object System.Windows.Forms.OpenFileDialog
             $dlg.Filter = 'Windows ISO (*.iso)|*.iso|All files (*.*)|*.*'
             $dlg.Title = 'Select a Windows 11 ISO'
-            if ($dlg.ShowDialog() -eq 'OK') {
-                $ui.Controls.Source.Text = $dlg.FileName; $ui.State.Source = $dlg.FileName
-                $btnLoadEditions.PerformClick()
+            # Start where the current ISO lives, else in Downloads.
+            $current = $ui.Controls.Source.Text.Trim().Trim('"')
+            $dlg.InitialDirectory = if ($current -and (Test-Path -LiteralPath $current -PathType Leaf)) { Split-Path -Parent $current } else { Join-Path $env:USERPROFILE 'Downloads' }
+            if ($dlg.ShowDialog() -eq 'OK') { & $setSourceAndLoad $dlg.FileName }
+        })
+
+    #---- Optional ISO recognition / download (background runspace, never required to build) ----
+    $isoTimer = New-Object System.Windows.Forms.Timer
+    $isoTimer.Interval = 250
+    $ui.IsoWorker = $null
+    $ui.IsoCheck = $null
+    $showAuth = {
+        param([string]$path, $result)
+        if (-not $result) { return }
+        $ui.IsoCheck = @{ Source = $path; Result = $result }
+        $lblAuth.Text = "Authenticity: $($result.Message)"
+        $lblAuth.ForeColor = switch ($result.Status) { 'Verified' { [System.Drawing.Color]::DarkGreen } 'NotListed' { [System.Drawing.Color]::DarkOrange } default { $muted } }
+        $tip.SetToolTip($lblAuth, "SHA-256 of this ISO: $($result.Sha256)`nCompared with Microsoft's published 'Verify your download' list for the current Windows 11 release (x64 and ARM64).`nInformational only: the build never depends on this result.")
+    }
+    $stopIsoWorker = {
+        param([string]$Kind)
+        $worker = $ui.IsoWorker
+        if (-not $worker -or ($Kind -and $worker.Kind -ne $Kind)) { return }
+        $isoTimer.Stop()
+        try { $worker.PowerShell.Stop() } catch { Write-Verbose "ISO task stop: $_" } finally { $worker.PowerShell.Dispose() }
+        $ui.IsoWorker = $null
+        $isoProgress.Visible = $false
+        $btnDownloadLink.Text = 'Download from link...'
+        $btnVerifyIso.Text = 'Check authenticity'
+    }
+    $startIsoWorker = {
+        param([string]$Kind, [scriptblock]$Body, [object[]]$Arguments, [string]$Path)
+        & $stopIsoWorker
+        $sync = [hashtable]::Synchronized(@{ Percent = 0; Text = ''; Result = $null; Error = $null })
+        $ps = [PowerShell]::Create()
+        [void]$ps.AddScript($Body).AddArgument($Script:GuiRepoRoot).AddArgument($sync)
+        foreach ($argument in $Arguments) { [void]$ps.AddArgument($argument) }
+        $ui.IsoWorker = @{ Kind = $Kind; PowerShell = $ps; Handle = $ps.BeginInvoke(); Sync = $sync; Path = $Path }
+        $isoProgress.Value = 0; $isoProgress.Visible = ($Kind -ne 'tools')
+        $isoTimer.Start()
+    }
+    $startVerify = {
+        param([string]$path)
+        $lblAuth.Text = 'Authenticity: computing SHA-256 (about 10-60 seconds; the build does not wait for it)...'
+        $lblAuth.ForeColor = $muted
+        $btnVerifyIso.Text = 'Stop check'
+        & $startIsoWorker 'verify' {
+            param($root, $sync, $path)
+            $ErrorActionPreference = 'Stop'
+            try {
+                Import-Module (Join-Path $root 'lib\tiny11download.psm1') -DisableNameChecking
+                $sha = Get-FileSha256WithProgress -Path $path -OnProgress { param($p) $sync.Percent = $p; $sync.Text = "Authenticity: computing SHA-256... $p%" }
+                $sync.Text = "Authenticity: checking Microsoft's published list..."
+                $sync.Result = Test-WindowsIsoAuthenticity -Path $path -Sha256 $sha
+            } catch { $sync.Error = $_.Exception.Message }
+        } @($path) $path
+    }
+    $isoTimer.Add_Tick({
+            $worker = $ui.IsoWorker
+            if (-not $worker) { $isoTimer.Stop(); return }
+            $sync = $worker.Sync
+            $isoProgress.Value = [Math]::Max(0, [Math]::Min(100, [int]$sync.Percent))
+            if ($sync.Text -and $worker.Kind -ne 'tools') { $lblAuth.Text = $sync.Text; $lblAuth.ForeColor = $muted }
+            if (-not $worker.Handle.IsCompleted) { return }
+            try { $null = $worker.PowerShell.EndInvoke($worker.Handle) } catch { if (-not $sync.Error) { $sync.Error = $_.Exception.Message } }
+            $kind = $worker.Kind; $path = $worker.Path
+            & $stopIsoWorker
+            if ($kind -eq 'tools') {
+                $ui.Controls.Stage.Text = if ($sync.Error) { "Tool preparation failed: $($sync.Error)" } else { [string]$sync.Result }
+                if (-not $ui.Process) { $null = & $refreshBuildTab }
+                return
+            }
+            if ($sync.Error) {
+                $lblAuth.Text = if ($kind -eq 'download') { "Download stopped: $($sync.Error)" } else { "Authenticity: could not be checked ($($sync.Error)). The build is not affected." }
+                $lblAuth.ForeColor = if ($kind -eq 'download') { $danger } else { $muted }
+                if ($kind -eq 'download' -and -not $ui.Quiet) { Invoke-PopupError -Title 'Download stopped' -Message "$($sync.Error)`n`nAn interrupted download is kept as a .part file and resumes when you start it again with a link to the same ISO." }
+                return
+            }
+            if ($kind -eq 'verify') {
+                if ($path -eq $ui.Controls.Source.Text.Trim().Trim('"')) { & $showAuth $path $sync.Result }
+                return
+            }
+            # Download finished: use it, show its recognition without re-hashing.
+            $saved = $sync.Result
+            if ($saved.Verification) { $ui.IsoCheck = @{ Source = $saved.Path; Result = $saved.Verification } }
+            & $setSourceAndLoad $saved.Path
+            if ($saved.Verification) { & $showAuth $saved.Path $saved.Verification }
+        })
+    $btnVerifyIso.Add_Click({
+            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'verify') { & $stopIsoWorker 'verify'; $lblAuth.Text = 'Authenticity: check stopped.'; return }
+            if ($ui.IsoWorker) { Invoke-PopupInfo -Title 'Busy' -Message 'Another ISO task (download or tool preparation) is running.'; return }
+            $src = $ui.Controls.Source.Text.Trim().Trim('"')
+            if (-not $src -or $src -notmatch '\.iso$' -or -not (Test-Path -LiteralPath $src -PathType Leaf)) {
+                Invoke-PopupError -Title 'No ISO file' -Message 'Choose an .iso file first. Drives (a mounted ISO or USB stick) cannot be compared with Microsoft''s ISO hashes.'; return
+            }
+            & $startVerify $src
+        })
+    #---- Assisted "Get Windows 11": the user picks the ISO on Microsoft's page in
+    # their own browser; the app notices the result and takes over.
+    $handoffTimer = New-Object System.Windows.Forms.Timer
+    $handoffTimer.Interval = 1000
+    $ui.Handoff = $null
+    $stopHandoff = {
+        param([string]$message)
+        $handoffTimer.Stop(); $ui.Handoff = $null
+        $btnOpenPage.Text = 'Get Windows 11...'
+        if ($message) { $lblAuth.Text = $message; $lblAuth.ForeColor = $muted }
+    }
+    $handoffTimer.Add_Tick({
+            $h = $ui.Handoff
+            if (-not $h) { $handoffTimer.Stop(); return }
+            if (((Get-Date) - $h.Started).TotalMinutes -ge 45) {
+                & $stopHandoff 'Stopped waiting for Microsoft''s download after 45 minutes. Use Browse... when it is done, or click Get Windows 11 again.'; return
+            }
+            # Only a link copied AFTER the click counts; other clipboard text is ignored and never logged.
+            $clip = $null
+            try { $text = [System.Windows.Forms.Clipboard]::GetText(); if ($text -and $text -ne $h.ClipboardAtStart) { $clip = $text } } catch { Write-Verbose 'Clipboard busy.' }
+            $found = Find-OfficialIsoHandoff -ClipboardText $clip -Baseline $h.Baseline -Folder $h.Folder -SizeMemory $h.Sizes
+            if (-not $found) {
+                $busy = @(Get-ChildItem -LiteralPath $h.Folder -File -Force -ErrorAction SilentlyContinue | Where-Object {
+                        $_.Name -match '\.(crdownload|part|partial)$' -and $_.LastWriteTime -gt (Get-Date).AddMinutes(-2) -and $_.Length -gt 50MB } |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+                $lblAuth.Text = if ($busy.Count) { 'Your browser is downloading: {0:N2} GB so far. The ISO is picked up automatically when it finishes.' -f ($busy[0].Length / 1GB) }
+                                else { "Waiting for Microsoft's page: choose the ISO and language, then click Download (or right-click it and Copy link)." }
+                $lblAuth.ForeColor = $muted
+                return
+            }
+            & $stopHandoff $null
+            if ($found.Kind -eq 'File') {
+                $lblAuth.Text = "Found your finished download: $($found.Path)"
+                & $setSourceAndLoad $found.Path
+            } else {
+                if ($ui.IsoWorker) { & $stopIsoWorker 'verify' }
+                & $startDownload $found.Url $h.Folder ''
             }
         })
+    $btnOpenPage.Add_Click({
+            if ($ui.Handoff) { & $stopHandoff 'Stopped waiting for Microsoft''s download.'; return }
+            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') { Invoke-PopupInfo -Title 'Download running' -Message 'A download is already running.'; return }
+            $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+            $folder = Get-UserDownloadsFolder
+            $clipboardAtStart = try { [System.Windows.Forms.Clipboard]::GetText() } catch { '' }
+            $ui.Handoff = @{
+                Started = Get-Date; Folder = $folder; Sizes = @{}; ClipboardAtStart = $clipboardAtStart
+                Baseline = @(Get-ChildItem -LiteralPath $folder -Filter '*.iso' -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+            }
+            Start-Process (Get-OfficialIsoPage -Architecture $arch)
+            $btnOpenPage.Text = 'Stop waiting'
+            $lblAuth.Text = "Waiting for Microsoft's page: choose the ISO and language, then click Download (or right-click it and Copy link)."
+            $lblAuth.ForeColor = $muted
+            $handoffTimer.Start()
+            if (-not $ui.Quiet) {
+                Invoke-PopupInfo -Title 'Get Windows 11' -Message ("Microsoft's official page is open in your browser ($arch).`n`n" +
+                    "1. Under 'Download Windows 11 Disk Image (ISO)', choose the multi-edition ISO, then Confirm.`n" +
+                    "2. Choose your language, then Confirm.`n" +
+                    "3. Click the Download button.`n`n" +
+                    "That's all: when the download finishes in $folder this window selects the ISO, loads its editions and checks it against Microsoft's hashes.`n`n" +
+                    "Faster alternative for step 3: right-click the button and choose 'Copy link'. The app then downloads it itself (resumable, SHA-256 checked) into the same folder.")
+            }
+        })
+    $btnDownloadLink.Add_Click({
+            if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'download') {
+                if (Invoke-PopupYesOrNo -Title 'Stop the download?' -Message 'The partial file is kept and resumes when you download the same ISO again (a fresh link to the same file also works).') {
+                    & $stopIsoWorker 'download'; $lblAuth.Text = 'Download stopped; the partial file is kept for resume.'
+                }
+                return
+            }
+            if ($ui.IsoWorker) { & $stopIsoWorker 'verify' }
+            if ($ui.IsoWorker) { Invoke-PopupInfo -Title 'Busy' -Message 'Tool preparation is running; try again in a moment.'; return }
+            $request = Show-GuiIsoDownloadDialog -Owner $ui.Form -DefaultFolder (Get-UserDownloadsFolder)
+            if (-not $request) { return }
+            & $startDownload $request.Url $request.Folder $request.Sha256
+        })
+    $startDownload = {
+        param([string]$url, [string]$folder, [string]$sha)
+        $btnDownloadLink.Text = 'Stop download'
+        $lblAuth.Text = 'Connecting to Microsoft...'; $lblAuth.ForeColor = $muted
+        & $startIsoWorker 'download' {
+                param($root, $sync, $url, $folder, $sha)
+                $ErrorActionPreference = 'Stop'
+                try {
+                    Import-Module (Join-Path $root 'lib\tiny11download.psm1') -DisableNameChecking
+                    $sync.Result = Save-WindowsIsoDownload -Url $url -Destination $folder -ExpectedSha256 $sha -OnProgress {
+                        param($p)
+                        if ($p.Phase -eq 'verify') { $sync.Percent = [int]$p.Bytes; $sync.Text = "Verifying the download (SHA-256)... $([int]$p.Bytes)%"; return }
+                        $sync.Percent = [int](100 * $p.Bytes / [Math]::Max(1, $p.Total))
+                        $left = if ($p.BytesPerSecond -gt 0) { [TimeSpan]::FromSeconds(($p.Total - $p.Bytes) / $p.BytesPerSecond).ToString('hh\:mm\:ss') } else { '?' }
+                        $sync.Text = ('Downloading: {0:N2} of {1:N2} GB at {2:N1} MB/s, about {3} left' -f ($p.Bytes / 1GB), ($p.Total / 1GB), ($p.BytesPerSecond / 1MB), $left)
+                    }
+                } catch { $sync.Error = $_.Exception.Message }
+            } @($url, $folder, $sha) $folder
+    }
+    # Drag an .iso from Explorer anywhere onto the window. WinForms delivers the
+    # drop to the control under the cursor, so every container/control opts in.
+    $onIsoDragEnter = {
+        param($eventSource, $e)
+        $files = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop))
+        $e.Effect = if ($files.Count -eq 1 -and $files[0] -match '\.iso$') { 'Copy' } else { 'None' }
+    }
+    $onIsoDragDrop = {
+        param($eventSource, $e)
+        $files = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop))
+        if ($files.Count -eq 1 -and $files[0] -match '\.iso$') { $ui.Tabs.SelectedTab = $tabSource; & $setSourceAndLoad ([string]$files[0]) }
+    }
+    $dropTargets = [Collections.Generic.Stack[object]]::new(); $dropTargets.Push($form)
+    while ($dropTargets.Count) {
+        $control = $dropTargets.Pop()
+        $control.AllowDrop = $true
+        $control.Add_DragEnter($onIsoDragEnter); $control.Add_DragDrop($onIsoDragDrop)
+        foreach ($child in $control.Controls) { $dropTargets.Push($child) }
+    }
     $editionTimer = New-Object System.Windows.Forms.Timer
     $editionTimer.Interval = 100
     $stopEditionRead = {
@@ -1433,6 +1974,10 @@ function Show-Tiny11BuilderForm {
             $ui.Controls.EditionHint.Text = "$($ui.Editions.Count) confirmed edition(s), Windows $($ui.Editions[0].DisplayVersion), $($ui.Editions[0].Version). No ISO mount."
             $editionProgress.Visible = $false
             $btnLoadEditions.Enabled = $true
+            # Optional recognition in the background (interactive use only; offline is fine).
+            $interactive = -not ($ui.AutoReadSource -or $ui.PreviewPath -or $ui.AutoRun -or $ui.Quiet)
+            if ($interactive -and -not $ui.IsoWorker -and $worker.Source -match '\.iso$' -and (Test-Path -LiteralPath $worker.Source -PathType Leaf) -and
+                -not ($ui.IsoCheck -and $ui.IsoCheck.Source -eq $worker.Source)) { & $startVerify $worker.Source }
             if ($ui.AutoReadSource) {
                 $ui.LastExit = 0
                 if ($ui.PreviewPath) { & $ui.Capture }
@@ -1471,6 +2016,12 @@ function Show-Tiny11BuilderForm {
     $cbSource.Add_TextChanged({
         if ($ui.Loading) { return }
         & $stopEditionRead
+        $typed = $cbSource.Text.Trim().Trim('"')
+        if ($ui.IsoWorker -and $ui.IsoWorker.Kind -eq 'verify' -and $ui.IsoWorker.Path -ne $typed) { & $stopIsoWorker 'verify' }
+        if ($ui.IsoCheck -and $ui.IsoCheck.Source -eq $typed) { & $showAuth $typed $ui.IsoCheck.Result }
+        elseif (-not $ui.IsoWorker -or $ui.IsoWorker.Kind -ne 'download') {
+            $lblAuth.Text = 'Authenticity: not checked yet (optional; never required to build).'; $lblAuth.ForeColor = $muted
+        }
         $ui.Editions = @()
         $ui.Controls.Edition.Items.Clear()
         $ui.State.Index = 0; $ui.State.EditionName = ''; $ui.State.EditionSizeBytes = 0
@@ -1582,6 +2133,10 @@ function Show-Tiny11BuilderForm {
             $dlg.InitialDirectory = Join-Path $Script:GuiRepoRoot 'presets'
             $dlg.FileName = 'my-preset.json'
             if ($dlg.ShowDialog() -eq 'OK') {
+                if (Test-GuiReservedPresetPath -Path $dlg.FileName -RepoRoot $Script:GuiRepoRoot) {
+                    Invoke-PopupError -Title 'Built-in preset' -Message "$([IO.Path]::GetFileName($dlg.FileName)) is a built-in preset and is not overwritten. Choose another name."
+                    return
+                }
                 $json = ConvertTo-PresetJson -Flags $ui.State.Flags -Name ([IO.Path]::GetFileNameWithoutExtension($dlg.FileName)) -Description 'Saved from the Tiny11 GUI'
                 [IO.File]::WriteAllText($dlg.FileName, $json, (New-Object System.Text.UTF8Encoding $false))
                 Invoke-PopupInfo -Title 'Preset saved' -Message "Use it with -Preset `"$($dlg.FileName)`" or load it here later."
@@ -1727,6 +2282,31 @@ function Show-Tiny11BuilderForm {
     $chkLowRam.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.Flags['LowRam'] = $chkLowRam.Checked; & $syncTweaks } })
     $chkDriverUpd.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.Flags['DisableDriverUpdates'] = $chkDriverUpd.Checked; & $syncTweaks } })
     $chkDefExcl.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.DefenderExclusion = $chkDefExcl.Checked } })
+    $chkOmitNetFx.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.OmitNetFx3Payload = $chkOmitNetFx.Checked } })
+    $chkShrinkBoot.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.ShrinkBootImage = $chkShrinkBoot.Checked } })
+    $chkRedundant.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.RemoveRedundantData = $chkRedundant.Checked } })
+    $chkKeepUninstall.Add_CheckedChanged({ if (-not $ui.Loading) { $ui.State.KeepUpdateUninstall = $chkKeepUninstall.Checked } })
+    $syncUpdates = { $ui.State.UpdatePackages = @($lbUpdates.Items | ForEach-Object { [string]$_ }) }
+    $btnUpdAdd.Add_Click({
+            $dlg = New-Object System.Windows.Forms.OpenFileDialog
+            $dlg.Filter = 'Windows update packages (*.msu;*.cab)|*.msu;*.cab'
+            $dlg.Multiselect = $true
+            $dlg.Title = 'Add Windows update packages (in prerequisite order)'
+            if ($dlg.ShowDialog() -eq 'OK') {
+                foreach ($file in $dlg.FileNames) { if (-not $lbUpdates.Items.Contains($file)) { [void]$lbUpdates.Items.Add($file) } }
+                & $syncUpdates
+            }
+        })
+    $btnUpdRemove.Add_Click({ if ($lbUpdates.SelectedIndex -ge 0) { $lbUpdates.Items.RemoveAt($lbUpdates.SelectedIndex); & $syncUpdates } })
+    $moveUpdate = {
+        param([int]$delta)
+        $i = $lbUpdates.SelectedIndex; $j = $i + $delta
+        if ($i -lt 0 -or $j -lt 0 -or $j -ge $lbUpdates.Items.Count) { return }
+        $item = $lbUpdates.Items[$i]; $lbUpdates.Items.RemoveAt($i); $lbUpdates.Items.Insert($j, $item); $lbUpdates.SelectedIndex = $j
+        & $syncUpdates
+    }
+    $btnUpdUp.Add_Click({ & $moveUpdate -1 })
+    $btnUpdDown.Add_Click({ & $moveUpdate 1 })
 
     # Build tab & bottom bar
     $tabs.Add_SelectedIndexChanged({ if ($ui.Tabs.SelectedTab -eq $tabBuild -and -not $ui.Process) { $null = & $refreshBuildTab } elseif ($ui.Tabs.SelectedTab -eq $tabExtras) { & $syncPayload } })
@@ -1737,12 +2317,40 @@ function Show-Tiny11BuilderForm {
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$dir`""
         })
-    $btnOpenOutput.Add_Click({ if (Test-Path -LiteralPath $ui.State.OutputIso) { Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$($ui.State.OutputIso)`"" } })
+    $btnOpenOutput.Add_Click({
+            $iso = if ($ui.PublishedIso) { $ui.PublishedIso } else { $ui.State.OutputIso }
+            if (Test-Path -LiteralPath $iso) { Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$iso`"" }
+        })
+    $btnPrepareTools.Add_Click({
+            if ($ui.IsoWorker) { Invoke-PopupInfo -Title 'Busy' -Message 'An ISO download or check is running; try again when it finishes.'; return }
+            $ui.Controls.Stage.Text = 'Preparing oscdimg and wimlib for offline builds...'
+            & $startIsoWorker 'tools' {
+                param($root, $sync)
+                $ErrorActionPreference = 'Stop'
+                try {
+                    Import-Module (Join-Path $root 'lib\tiny11utils.psm1') -DisableNameChecking
+                    $null = Initialize-Oscdimg
+                    try { $null = Initialize-Wimlib } catch { Write-Verbose "wimlib: $_" }
+                    $sync.Result = 'Tools ready. ' + (Get-BuildToolReadiness).Summary
+                } catch { $sync.Error = $_.Exception.Message }
+            } @() ''
+        })
     $btnBuild.Add_Click({ & $startBuild $false })
     $btnDryRun.Add_Click({ & $startBuild $true })
     $btnCancel.Add_Click({
             if (-not $ui.Process) { return }
-            if (-not (Invoke-PopupYesOrNo -Title 'Cancel the build?' -Message 'The builder is stopped and the mounted image is discarded. Continue?')) { return }
+            if (-not $ui.CancelRequested) {
+                # First click: safe cancel. Never kills DISM mid-mount/commit/export.
+                if (-not (Invoke-PopupYesOrNo -Title 'Cancel the build safely?' -Message ("The builder stops at the next safe point. A DISM mount, commit or export that is already running finishes first; then the mounted image is discarded and the hives are unloaded.`n`nYour source ISO is never changed. Cancel now?"))) { return }
+                try { Request-GuiBuildCancel -CancelFile $ui.CancelFile } catch { Invoke-PopupError -Title 'Cancel failed' -Message $_.Exception.Message; return }
+                $ui.CancelRequested = $true
+                $ui.Controls.Cancel.Text = 'Force stop...'
+                & $appendLog 'Cancel requested: waiting for the next safe point (the current DISM step is not interrupted)...'
+                $ui.Controls.Stage.Text = 'Cancelling at the next safe point...'
+                return
+            }
+            # Second click: the previous hard stop, with an explicit warning.
+            if (-not (Invoke-PopupYesOrNo -Title 'Force stop?' -Message 'Force stop kills the builder immediately. A DISM step in progress can leave a mounted image or loaded hive behind; emergency cleanup then runs, which can take minutes. Prefer waiting for the safe cancel. Force stop now?')) { return }
             $ui.Timer.Stop()
         $ui.Controls.StepProgress.Style = 'Continuous'
             & $appendLog 'Cancelling: stopping the builder and cleaning up the work folders...'
@@ -1751,9 +2359,12 @@ function Show-Tiny11BuilderForm {
             $ui.Process = $null
             try { Stop-GuiBuild -Process $proc -ScratchDisk $ui.BuildScratch } catch { & $appendLog "Cleanup warning: $($_.Exception.Message)" }
             foreach ($line in @(Read-GuiLogTail -Reader $ui.Reader)) { if ($line -notmatch '^__TINY11_EXIT__') { & $appendLog $line } }
-            & $appendLog 'Build cancelled.'
+            & $appendLog 'Build force-stopped.'
             & $setBusy $false
-            $ui.Controls.Stage.Text = 'Cancelled.'
+            $ui.CancelRequested = $false
+            $ui.Controls.Cancel.Text = 'Cancel build'
+            $ui.Controls.Stage.Text = 'Force-stopped. Check the log for cleanup results before the next build.'
+            if ($ui.CloseAfterBuild) { $ui.CloseAfterBuild = $false; $ui.Form.BeginInvoke([Action] { $ui.Form.Close() }) | Out-Null }
             $ui.Controls.Stage.ForeColor = $danger
         })
     $btnSaveProfile.Add_Click({
@@ -1782,11 +2393,27 @@ function Show-Tiny11BuilderForm {
     $form.Add_FormClosing({
             param($eventSource, $e)
             if ($ui.Process -and -not $ui.Process.HasExited) {
-                if (-not (Invoke-PopupYesOrNo -Title 'Build running' -Message 'A build is running. Stop it, clean up and close?')) { $e.Cancel = $true; return }
-                $ui.Timer.Stop()
-        $ui.Controls.StepProgress.Style = 'Continuous'
-                try { Stop-GuiBuild -Process $ui.Process -ScratchDisk $ui.BuildScratch } catch { Write-Verbose $_.Exception.Message }
+                # Same safe cancel as the Cancel button: never kill DISM mid-step.
+                $e.Cancel = $true
+                if ($ui.CloseAfterBuild) { return }
+                if (-not (Invoke-PopupYesOrNo -Title 'Build running' -Message ("A build is running. Cancel it safely and close the window once it has stopped?`n`n" +
+                            'The current DISM step finishes first, then the mounted image is discarded. Use "Force stop..." on the Build tab only if it hangs.'))) { return }
+                try {
+                    Request-GuiBuildCancel -CancelFile $ui.CancelFile
+                    $ui.CancelRequested = $true; $ui.CloseAfterBuild = $true
+                    $ui.Controls.Cancel.Text = 'Force stop...'
+                    $ui.Controls.Stage.Text = 'Closing after the safe cancel finishes...'
+                } catch { Invoke-PopupError -Title 'Cancel failed' -Message $_.Exception.Message }
+                return
             }
+            if ($ui.IsoWorker) {
+                if ($ui.IsoWorker.Kind -eq 'download' -and -not $ui.Quiet -and
+                    -not (Invoke-PopupYesOrNo -Title 'Download running' -Message 'An ISO download is running. Stop it and close? The partial file is kept and resumes next time.')) { $e.Cancel = $true; return }
+                & $stopIsoWorker
+            }
+            $isoTimer.Dispose()
+            if ($ui.Handoff) { & $stopHandoff $null }
+            $handoffTimer.Dispose()
             & $stopEditionRead
             $editionTimer.Dispose()
             if (-not $PreviewPath -and $SettingsPath) {
@@ -1867,5 +2494,6 @@ function Show-Tiny11BuilderForm {
 Export-ModuleMember -Function Get-GuiFlagInfo, Get-GuiPresetDescription, Get-GuiCompressionDescription, Get-GuiDefaultState,
     Test-GuiFlagsModified, Test-GuiRemoveListModified, Format-GuiCommandLine, ConvertTo-GuiBuildRequest, Test-GuiBuildRequest,
     Get-GuiTweakRows, Set-GuiTweakChoice, Get-GuiBuildStage, Get-GuiStepProgress, Get-GuiTiming, Get-GuiLineKind, Export-GuiSettings, Import-GuiSettings,
-    Start-GuiBuild, Read-GuiLogTail, Stop-GuiBuild, Invoke-PopupInfo, Invoke-PopupError, Invoke-PopupYesOrNo,
+    Start-GuiBuild, Get-GuiCancelRequestPath, Request-GuiBuildCancel, Test-GuiReservedPresetPath, Format-GuiTip, Show-GuiIsoDownloadDialog,
+    Read-GuiLogTail, Stop-GuiBuild, Invoke-PopupInfo, Invoke-PopupError, Invoke-PopupYesOrNo,
     Get-SetupMediaDrives, Get-NtfsDrives, Get-SourceEditions, Format-GuiEdition, New-UiControl, Show-Tiny11BuilderForm

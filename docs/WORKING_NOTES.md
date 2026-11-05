@@ -70,6 +70,30 @@ The 23.4-second figure measured **initial source-edition export**, never a full 
 
 ## Next agent: outstanding work and safe starting point
 
+**2026-11-04:** ntdevlabs replaced its PowerShell project with a C#/WinUI 3 app (`winui-preview`, v0.2.0; old `main` gone). The work list is [UPSTREAM_MERGE_PLAN.md](UPSTREAM_MERGE_PLAN.md). User decisions recorded there:
+- PowerShell only, upstream behaviors reimplemented and never copied (upstream has no license).
+- Resume on by default, with an opt-out; resumed runs never count as first-build timings.
+- Keep the new GUI-saved Default preset, which resolves item 9 below as intended.
+- WPF/XAML wizard GUI, pending confirmation.
+
+Two references now return "Repository not found" (namnguyen97x, icis-org); their local checkouts are preserved.
+
+**Implemented 2026-11-04 (uncommitted, regression-tested only):**
+- Engine fixes (plan sections A/B): native ACL-preserving deletion (`lib/NativeImage.cs`), the in-place Core WinSxS trim, native hive load with `reg.exe` fallback, the backup/restore registry fallback before Offreg, DISM `/English` + log/scratch, servicing-tool gate, output/work-folder/NTFS checks, verified ISO publication, safe GUI cancel, cleanup-before-.NET 3.5, a Core pending-operations refusal, verified capability removal, legacy optional-feature removal, guarded Edge uninstall entries, and four Edge policies (`EdgePromotions`).
+- New options in the existing WinForms GUI (Extras tab) and CLI: `-UpdatePackage`, `-OmitNetFx3Payload`, `-ShrinkBootImage`, `-RemoveRedundantData`, `-KeepUpdateUninstall`.
+- Not done yet: Resume/Recover, the official ISO download, the component inventory/expert actions, legacy Setup for Core (B6, needs a VM), `report.json`/`operations.json`, and per-job unique hive names. The WPF plan (`plan_new_ui.md`) waits for the user's approval of this work.
+- **No fresh full ISO build or VM installation of this revision exists.**
+
+**2026-11-05 additions (uncommitted):**
+- Optional ISO recognition against Microsoft's published hash table, and a resumable download from a Microsoft link the user copies in the browser (`lib/tiny11download.psm1`, `tiny11iso.ps1`, GUI Source tab).
+- Offline-readiness checks and *Prepare offline tools*.
+- Mouse-over help on every control, enforced by a test.
+- Safe cancel on window close; early refusal of a locked output ISO.
+- Recognition is informational and must never block a build.
+- The user's source ISO matched Microsoft's 26H2 English x64 entry ([evidence](verification/2026-11-05/iso-recognition.json)).
+
+Status of the items below: 4 now reports the native `RegLoadKeyW` code but its cause is still unproven; the Core `cmd/rmdir` part of 6 is gone; 8 and 9 are resolved.
+
 1. Read [PROJECT_GUIDE.md](PROJECT_GUIDE.md), [CONTRIBUTING.md](../CONTRIBUTING.md) and [VERIFICATION.md](VERIFICATION.md). Consult the bug/performance/reference reports for the change being considered. Read an available `RTK.md`; it remains absent from this checkout.
 2. Start from current Git status and exact code/preset/options. Use fresh isolated work and original input for any later authorized build. Verify earlier writers/attachments have ended before launching; do not automatically start another benchmark just because historical reports mention one.
 3. A fresh full **current-revision** Standard build and a disposable VM boot/install would close the principal validation gap. Installation media can create disk-writing behavior, especially ZeroTouch; use an explicitly disposable VM/test disk and record edition, firmware mode and results. This documentation update did not perform either.
@@ -77,3 +101,5 @@ The 23.4-second figure measured **initial source-edition export**, never a full 
 5. ARM64, Core, multilingual and driver-enabled end-to-end builds have not been demonstrated by the x64 Pro benchmarks. Existing fixtures cover some mechanics, not complete platform installation support.
 6. GUI visible controls do not yet expose isolated WorkDirectory or dedicated compressor engine/effort/thread selectors. Do not describe this as implemented. Cleanup is best-effort, and some legacy recovery routines use shared aliases/global mountpoint cleanup; isolation is not a cross-process lock. Core's existing offline WinSxS `cmd/rmdir` fallback is separate from the guarded scratch-folder cleanup and deserves review before claiming all deletions use that guard.
 7. Preserve measured scope and historical attribution when updating docs. Keep new state at the top, move history to the relevant report, and update generated catalogs through `scripts/update-generated.ps1`, never manual edits that CI will overwrite.
+8. Core passes no `-NoResetBase` to `Invoke-ComponentCleanup`, while Standard suppresses `/ResetBase` when `-EnableNetFx3` was used (`tiny11Coremaker.ps1` cleanup stage vs `tiny11maker.ps1`). This looks like an oversight rather than a decision: Core rebuilds WinSxS and removes packages regardless, but `/ResetBase` could still drop a NetFx3 payload Core just added. It is now commented in both files. Fix or confirm before treating a Core `-EnableNetFx3` image as complete.
+9. `presets/default.json` was overwritten by a GUI save ("Saved from the Tiny11 GUI", Defender off, Ultimate Performance and Fast Shutdown on). That file is tracked, so `update-generated.ps1 -Check` fails on it until regenerated, and three catalog/preset assertions fail because the Default preset no longer keeps Defender. The overwrite was left in place, not reverted: confirm whether the new Default is intended before regenerating TWEAKS/APPS.

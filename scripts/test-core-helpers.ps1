@@ -12,7 +12,16 @@
       * answer files (generated + the static reference files), checked
         against an allow-list of real Microsoft-Windows-* unattend settings
       * removal planning (apps, capabilities, packages, editions)
+      * registry guards, scheduled tasks, first-boot scripts, ISO helpers
+      * GUI state, validation, progress and timing, driven through the real
+        functions and a fake builder
       * static lint of the builder scripts
+
+    Read the assertions with this in mind: sections that inject recorders with
+    & $module { ... } replace a command *inside the module scope*, so they test
+    the caller's use of a stage function, not the stage function itself. Those
+    mocks are marked as such below. A green run therefore proves the contracts
+    this file exercises and nothing broader - no Windows image is serviced.
 
     Exit code 1 when any check fails.
 #>
@@ -64,7 +73,9 @@ foreach ($name in 'Default', 'Gaming', 'Minimal-VM', 'PrivacyPlus') {
     Check "$name keeps UTC clock off" (-not $preset.EnableUtcClock)
 }
 $d = Resolve-BuildPreset
-Check 'no preset = Default'                ($d.RemoveEdge -and -not $d.RemoveStore -and -not $d.RemoveDefender)
+Check 'no preset = Default'                ($d.RemoveEdge -and -not $d.RemoveStore -and $d.RemoveDefender)
+Check 'Default: Ultimate Performance + fast shutdown (2026-11-04 decision)' ($d.EnableUltimatePerformance -and $d.EnableFastShutdown)
+Check 'Gaming keeps Defender on'           (-not (Resolve-BuildPreset Gaming).RemoveDefender)
 Check 'Default keeps WebView2'             (-not $d.RemoveWebView)
 Check 'Default keeps Mark-of-the-Web'      (-not $d.DisableZoneInformation)
 Check 'Gaming keeps Xbox'                  ((Resolve-BuildPreset Gaming).KeepXbox)
@@ -83,7 +94,10 @@ Check 'custom json overrides'              ((-not $c.RemoveEdge) -and $c.EnableU
 Check 'custom json inherits Default'       ($c.RemoveOneDrive -and $c.DisableTelemetry)
 Remove-Item $tmpPreset -Force
 
-# presets\*.json must spell every flag and match the built-in fallback table.
+# presets\*.json must spell every flag, and may not invent one.
+# This checks key names only: it does not compare any value against the built-in
+# Default table, so a preset that contradicts the documented Default behavior in
+# its values would still pass here.
 foreach ($file in Get-ChildItem (Join-Path $repo 'presets') -Filter *.json) {
     $json = Get-Content -Raw $file.FullName | ConvertFrom-Json
     $keys = @()
@@ -94,6 +108,19 @@ foreach ($file in Get-ChildItem (Join-Path $repo 'presets') -Filter *.json) {
     $unknown = @($keys | Where-Object { $flagNames -notcontains $_ })
     Check "$($file.Name): all flags present ($($missing -join ','))" ($missing.Count -eq 0)
     Check "$($file.Name): no unknown keys ($($unknown -join ','))"   ($unknown.Count -eq 0)
+}
+# Value-by-value: each built-in fallback must equal its presets\*.json file, so a
+# missing or unreadable JSON never silently produces a different image.
+$presetModule = Get-Module tiny11utils
+foreach ($name in 'Default', 'Gaming', 'Minimal-VM', 'PrivacyPlus') {
+    $jsonPath = Join-Path $repo ("presets\{0}.json" -f $name.ToLowerInvariant())
+    $fromJson = Resolve-BuildPreset -PresetName $name
+    $hidden = Join-Path ([IO.Path]::GetTempPath()) ("t11-hidden-$PID-" + [IO.Path]::GetFileName($jsonPath))
+    Move-Item -LiteralPath $jsonPath -Destination $hidden
+    try { $builtIn = & $presetModule { param($n) Resolve-BuildPreset -PresetName $n } $name }
+    finally { Move-Item -LiteralPath $hidden -Destination $jsonPath }
+    $diff = @($flagNames | Where-Object { [bool]$fromJson[$_] -ne [bool]$builtIn[$_] })
+    Check "$name built-in table equals its JSON ($($diff -join ','))" ($diff.Count -eq 0)
 }
 
 #======================================================================
@@ -256,7 +283,9 @@ Check 'search highlights per-user key'       ([bool]$seen['hklm\zntuser\software
 
 $plan = @(Get-TweakPlan -Flags (Resolve-BuildPreset Default) | ForEach-Object { $_.Id })
 Check 'Default plan: bypass/telemetry/AI'  (($plan -contains 'HardwareBypass') -and ($plan -contains 'Telemetry') -and ($plan -contains 'AI'))
-Check 'Default plan: no Defender-off/WU'   (($plan -notcontains 'DefenderOff') -and ($plan -notcontains 'WindowsUpdateOff'))
+Check 'Default plan: Defender off, Update kept' (($plan -contains 'DefenderOff') -and ($plan -notcontains 'WindowsUpdateOff'))
+$pplan = @(Get-TweakPlan -Flags (Resolve-BuildPreset PrivacyPlus) | ForEach-Object { $_.Id })
+Check 'PrivacyPlus plan: no Defender-off'  ($pplan -notcontains 'DefenderOff')
 Check 'Default plan: no UTC/MOTW changes'  (($plan -notcontains 'UtcClock') -and ($plan -notcontains 'ZoneInformation'))
 Check 'Default plan: GameDvr off'          ($plan -contains 'GameDvr')
 $gplan = @(Get-TweakPlan -Flags (Resolve-BuildPreset Gaming) | ForEach-Object { $_.Id })
@@ -352,6 +381,11 @@ $global:T11Test=@{ Default=2; Missing=$false; MissingSelect=$false; Denied=$fals
         return (-not $global:T11Test.Missing)
     }
     function script:Assert-OfflineHiveLoaded { param($Path) }
+    # Native seams: never attach or write a real HKLM key from the test suite.
+    function script:Invoke-NativeHiveLoad { param($HiveName,$FilePath) 0 }
+    function script:Invoke-NativeHiveUnload { param($HiveName) 0 }
+    function script:Set-OfflineRegistryValueNative { param($Path,$Name,$Type,$Value) $false }
+    function script:Remove-OfflineRegistryNative { param($Path,$Name) $false }
     function script:Invoke-Native {
         param($FilePath,$ArgumentList,[switch]$PassThru,$TimeoutSeconds)
         $global:T11Test.Native+= ,@($ArgumentList)
@@ -715,6 +749,11 @@ try {
     Remove-Variable -Name T11Test -Scope Global
 }
 Section 'Early offline hive-loading preflight'
+# Register-load calls are mocked, so this exercises Test-OfflineHiveLoading's own
+# control flow (one load, one unload, disposable alias, file cleanup) rather than
+# reg.exe. The guard is only about Add-Type availability; nothing here calls
+# offreg.dll, and the skip is silent - a host without it reports neither pass
+# nor skip for these checks.
 if (Test-Path -LiteralPath (Join-Path ([Environment]::SystemDirectory) 'offreg.dll')) {
     $probeWork = Join-Path $repo ('logs\preflight-test-' + [guid]::NewGuid().ToString('N'))
     $global:T11Test = @{ Loads = 0; Unloads = 0; FailLoad = $false; FailUnload = $false; Alias = '' }
@@ -770,6 +809,9 @@ Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableName
 Remove-Variable -Name T11Test -Scope Global
 
 Section 'File-only offline registry writes'
+# This section is genuinely conditional: it P/Invokes offreg.dll, so on a host
+# without it every check below is skipped silently. Treat a run here as "not
+# executed" rather than "passed" when reading CI output.
 if (Test-Path -LiteralPath (Join-Path ([Environment]::SystemDirectory) 'offreg.dll')) {
     Add-Type -Path (Join-Path $repo 'lib\OfflineRegistry.cs')
     $hiveFile = Join-Path $repo "logs\test-offreg-$([guid]::NewGuid().ToString('N')).hive"
@@ -867,7 +909,7 @@ $cat = Invoke-TweakCatalog -Flags $flags 6>$null
 $expectedSets = @(Get-TweakPlan -Flags $flags | ForEach-Object { @($_.Set | Where-Object { $_ }) }).Count
 Check 'catalog: every planned value written' ($global:T11Test.RegSet.Count -eq $expectedSets)
 Check 'catalog: no failures'               ($cat.Failures -eq 0)
-Check 'catalog: applied ids reported'      ($cat.Applied -contains 'Telemetry' -and $cat.Applied -notcontains 'DefenderOff')
+Check 'catalog: applied ids reported'      ($cat.Applied -contains 'Telemetry' -and $cat.Applied -contains 'DefenderOff' -and $cat.Applied -notcontains 'WindowsUpdateOff')
 Check 'catalog: deletes issued'            ($global:T11Test.RegDel -contains 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate|')
 $global:T11Test.RegSet.Clear()
 $cat = Invoke-TweakCatalog -Flags (Resolve-BuildPreset Gaming) 6>$null
@@ -949,6 +991,7 @@ $global:T11Test = @{ ExitCode = 0; Create = $true; Stream = $false; BootArg = ''
     function script:Find-Oscdimg { [pscustomobject]@{ Source = 'bundled' } }
     function script:Initialize-Oscdimg { $global:T11Test.Initializations++; 'fake-oscdimg.exe' }
     function script:Get-OscdimgBootArgument { '-bootdata:2#p0,e,bBIOS#pEF,e,bUEFI' }
+    function script:Test-IsoVolumeDescriptor { param($Path) -not $global:T11Test.BadDescriptor }
     function script:Get-Item { [pscustomobject]@{ Length = [long]301MB } }
     function script:Invoke-Native {
         param($FilePath, $ArgumentList, [switch]$StreamOutput)
@@ -979,10 +1022,305 @@ try {
     CheckThrows 'ISO stage rejects failed tool even with output file' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
     $global:T11Test.ExitCode = 0; $global:T11Test.Create = $false
     CheckThrows 'ISO stage rejects missing output even with exit zero' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+    # Verified publication: the previous ISO survives every failed attempt.
+    [IO.File]::WriteAllText($isoPath, 'previous good iso')
+    $global:T11Test.ExitCode = 7; $global:T11Test.Create = $true
+    CheckThrows 'failed mastering throws' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+    Check 'failed mastering keeps the previous ISO untouched' ((Get-Content -Raw -LiteralPath $isoPath) -eq 'previous good iso')
+    $global:T11Test.ExitCode = 0; $global:T11Test.BadDescriptor = $true
+    CheckThrows 'ISO without a volume descriptor is not published' { New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null }
+    Check 'descriptor failure keeps the previous ISO' ((Get-Content -Raw -LiteralPath $isoPath) -eq 'previous good iso')
+    Check 'no partial files are left behind' (@(Get-ChildItem -LiteralPath $isoTestRoot -Force -Filter '*.partial').Count -eq 0)
+    $global:T11Test.BadDescriptor = $false
+    $null = New-Tiny11Iso -WorkRoot $isoTestRoot -OutputIso $isoPath 6>$null
+    Check 'verified ISO replaces the previous one' ((Get-Content -Raw -LiteralPath $isoPath) -eq 'fake')
 } finally {
     Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
     Remove-Variable -Name T11Test -Scope Global
     Remove-Item -LiteralPath $isoTestRoot -Recurse -Force
+}
+
+#======================================================================
+Section 'Native image helpers (real file fixtures, no image mount)'
+$module = Get-Module tiny11utils
+$nativeRoot = Join-Path ([IO.Path]::GetTempPath()) ("t11-native-$PID-" + [guid]::NewGuid().ToString('N'))
+$fakeMount = Join-Path $nativeRoot 'mount'
+try {
+    New-Item -ItemType Directory -Force -Path "$fakeMount\Windows\System32\config", "$fakeMount\Windows\WinSxS", "$fakeMount\Program Files (x86)\Microsoft\Edge\Application" | Out-Null
+    [IO.File]::WriteAllText("$fakeMount\Windows\System32\config\SYSTEM", 'not a hive')
+    Check 'fake image mount accepted as deletion root'   (Test-ImageMountRoot -MountPath $fakeMount)
+    Check 'drive root refused as deletion root'           (-not (Test-ImageMountRoot -MountPath ([IO.Path]::GetPathRoot($env:SystemRoot))))
+    Check 'running Windows refused as deletion root'      (-not (Test-ImageMountRoot -MountPath (Split-Path -Parent $env:SystemRoot)))
+    Check 'non-image folder refused as deletion root'     (-not (Test-ImageMountRoot -MountPath $nativeRoot))
+
+    # Hard link: the System32 copy must keep its ACL and read-only attribute.
+    $system32File = "$fakeMount\Windows\System32\shared.dll"
+    [IO.File]::WriteAllText($system32File, 'binary')
+    (Get-Item -LiteralPath $system32File).IsReadOnly = $true
+    $aclBefore = (Get-Acl -LiteralPath $system32File).Sddl
+    $component = "$fakeMount\Windows\WinSxS\amd64_unneeded-component_31bf3856ad364e35_10.0.1_none_abc"
+    New-Item -ItemType Directory -Force -Path $component | Out-Null
+    New-Item -ItemType HardLink -Path "$component\shared.dll" -Target $system32File | Out-Null
+    [IO.File]::WriteAllText("$fakeMount\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", 'edge')
+    (Get-Item -LiteralPath "$fakeMount\Program Files (x86)\Microsoft\Edge\Application\msedge.exe").IsReadOnly = $true
+    Check 'Remove-ImagePath deletes read-only trees natively' (Remove-ImagePath -Path "$fakeMount\Program Files (x86)\Microsoft\Edge" -MountPath $fakeMount 3>$null)
+    Check 'Remove-ImagePath: target is gone'             (-not (Test-Path -LiteralPath "$fakeMount\Program Files (x86)\Microsoft\Edge"))
+    Check 'Remove-ImagePath on a missing path is true'   (Remove-ImagePath -Path "$fakeMount\missing" -MountPath $fakeMount)
+
+    # Core WinSxS plan and in-place trim.
+    foreach ($name in 'Catalogs', 'Manifests', 'Fusion', 'FileMaps',
+        'amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.1_none_a',
+        'amd64_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.1_none_b',
+        'amd64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.1_none_c') {
+        New-Item -ItemType Directory -Force -Path "$fakeMount\Windows\WinSxS\$name" | Out-Null
+    }
+    [IO.File]::WriteAllText("$fakeMount\Windows\WinSxS\Manifests\keep.manifest", 'm')
+    [IO.File]::WriteAllText("$fakeMount\Windows\WinSxS\pending.xml.old", 'top-level file')
+    $plan = Get-CoreWinSxSPlan -Names @(Get-ChildItem -LiteralPath "$fakeMount\Windows\WinSxS" -Force | ForEach-Object Name) -Architecture amd64
+    Check 'WinSxS plan keeps runtime + metadata'          ($plan.Keep.Count -eq 7 -and $plan.Keep -contains 'Manifests')
+    Check 'WinSxS plan removes the rest'                  ($plan.Remove -contains ([IO.Path]::GetFileName($component)) -and $plan.Remove -contains 'pending.xml.old')
+    CheckThrows 'WinSxS plan refuses a store without GDI+' { Get-CoreWinSxSPlan -Names @('Catalogs', 'Manifests', 'Fusion', 'FileMaps', 'amd64_microsoft.windows.common-controls_x', 'amd64_microsoft-windows-servicingstack_x') -Architecture amd64 }
+    CheckThrows 'WinSxS plan refuses missing metadata'    { Get-CoreWinSxSPlan -Names @('amd64_microsoft.windows.common-controls_x', 'amd64_microsoft.windows.gdiplus_x', 'amd64_microsoft-windows-servicingstack_x') -Architecture amd64 }
+    $deleted = Invoke-CoreWinSxSTrim -MountPath $fakeMount -Architecture amd64 6>$null 3>$null
+    Check 'WinSxS trim deleted the component tree'        ($deleted -ge 2 -and -not (Test-Path -LiteralPath $component))
+    Check 'WinSxS trim kept runtime and metadata'         ((Test-Path -LiteralPath "$fakeMount\Windows\WinSxS\Manifests\keep.manifest") -and @(Get-ChildItem -LiteralPath "$fakeMount\Windows\WinSxS").Count -eq 7)
+    Check 'hard-linked System32 file content survives'    ((Get-Content -Raw -LiteralPath $system32File) -eq 'binary')
+    Check 'hard-linked System32 file ACL is unchanged'    ((Get-Acl -LiteralPath $system32File).Sddl -eq $aclBefore)
+    Check 'hard-linked System32 file stays read-only'     ((Get-Item -LiteralPath $system32File).IsReadOnly)
+    (Get-Item -LiteralPath $system32File).IsReadOnly = $false
+
+    # Pending-operation markers stop Core pruning.
+    Check 'no pending markers in a clean store'           ((Get-OfflinePendingOperations -MountPath $fakeMount).Count -eq 0)
+    [IO.File]::WriteAllText("$fakeMount\Windows\WinSxS\pending.xml", 'pending')
+    Check 'pending.xml is reported'                       ((@(Get-OfflinePendingOperations -MountPath $fakeMount) -match 'pending\.xml').Count -eq 1)
+} finally {
+    Get-ChildItem -LiteralPath $nativeRoot -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try { $_.IsReadOnly = $false } catch { Write-Verbose 'not a file' } }
+    Remove-Item -LiteralPath $nativeRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$bytes = ConvertTo-RegistryValueBytes -Type REG_DWORD -Value '0x10'
+Check 'registry bytes: DWORD hex'                     ($bytes.Kind -eq 4 -and [BitConverter]::ToUInt32($bytes.Bytes, 0) -eq 16)
+Check 'registry bytes: QWORD decimal'                 ((ConvertTo-RegistryValueBytes -Type REG_QWORD -Value '5').Kind -eq 11)
+Check 'registry bytes: SZ is NUL-terminated UTF-16'   ((ConvertTo-RegistryValueBytes -Type REG_SZ -Value 'ab').Bytes.Length -eq 6)
+Check 'registry bytes: MULTI_SZ double NUL'           ((ConvertTo-RegistryValueBytes -Type REG_MULTI_SZ -Value 'a\0b').Bytes.Length -eq 10)
+Check 'registry bytes: BINARY hex'                    (((ConvertTo-RegistryValueBytes -Type REG_BINARY -Value '0aff').Bytes -join ',') -eq '10,255')
+CheckThrows 'registry bytes: malformed BINARY'        { ConvertTo-RegistryValueBytes -Type REG_BINARY -Value 'xyz' }
+CheckThrows 'native path split refuses host hives'    { Split-OfflineRegistryPath -Path 'HKLM\SOFTWARE\Policies\X' }
+CheckThrows 'native path split refuses unowned hives' { Split-OfflineRegistryPath -Path 'HKLM\zSOFTWARE\Policies\X' }
+
+& $module { $Script:DismSession = @{ LogPath = 'C:\logs\dism.log'; ScratchDirectory = 'D:\scratchdir_dism' } } | Out-Null
+$dismArgs = Add-DismSessionArguments -Arguments @('/Image:D:\mnt', '/Get-Features')
+Check 'DISM args: /English appended once'             (@($dismArgs | Where-Object { $_ -eq '/English' }).Count -eq 1 -and $dismArgs[0] -eq '/Image:D:\mnt')
+Check 'DISM args: session log and level'              ($dismArgs -contains '/LogPath:C:\logs\dism.log' -and $dismArgs -contains '/LogLevel:2')
+Check 'DISM args: scratch only for /Image commands'   ($dismArgs -contains '/ScratchDir:D:\scratchdir_dism' -and -not ((Add-DismSessionArguments -Arguments @('/Mount-Image', '/ImageFile:x')) -like '/ScratchDir:*'))
+$englishArgs = Add-DismSessionArguments -Arguments @('/English', '/Get-MountedWimInfo')
+Check 'DISM args: existing /English not duplicated'   ($englishArgs[0] -eq '/English' -and @($englishArgs | Where-Object { $_ -eq '/English' }).Count -eq 1)
+Check 'DISM args: one array argument for the caller'  ((Add-DismSessionArguments -Arguments @('/Get-MountedWimInfo')) -is [array])
+& $module { $Script:DismSession = @{ LogPath = $null; ScratchDirectory = $null } } | Out-Null
+
+Check 'servicing base: 26300 -> 26100'                ((Get-ServicingBaseBuild 26300) -eq 26100 -and (Get-ServicingBaseBuild 26200) -eq 26100 -and (Get-ServicingBaseBuild 22631) -eq 22621)
+Check 'servicing base: unknown build maps to itself'  ((Get-ServicingBaseBuild 26340) -eq 26340)
+$dismPath = (Get-Command dism.exe -ErrorAction SilentlyContinue).Source
+if ($dismPath) {
+    CheckThrows 'old Windows 10 tools refused for a 26H2 image' { Assert-ServicingToolsSupportImage -ImageBuild 26300 -Tools ([pscustomobject]@{ Path = $dismPath; Version = [version]'10.0.19041.3636' }) 6>$null }
+    $ok = $true; try { Assert-ServicingToolsSupportImage -ImageBuild 26300 -Tools ([pscustomobject]@{ Path = $dismPath; Version = [version]'10.0.26100.1' }) 6>$null 3>$null } catch { $ok = $false }
+    Check '26100 tools accepted for a 26300 image (same servicing base)' $ok
+    CheckThrows 'unknown newer build needs newer tools' { Assert-ServicingToolsSupportImage -ImageBuild 26340 -Tools ([pscustomobject]@{ Path = $dismPath; Version = [version]'10.0.26100.1' }) 6>$null }
+}
+
+$isoFixture = Join-Path ([IO.Path]::GetTempPath()) "t11-iso-$PID.bin"
+$isoBytes = [byte[]]::new(2048 * 40)
+[Text.Encoding]::ASCII.GetBytes('CD001').CopyTo($isoBytes, 2048 * 16 + 1)
+[IO.File]::WriteAllBytes($isoFixture, $isoBytes)
+Check 'ISO9660 descriptor recognised'                 (Test-IsoVolumeDescriptor -Path $isoFixture)
+[IO.File]::WriteAllBytes($isoFixture, [byte[]]::new(2048 * 40))
+Check 'blank image has no descriptor'                 (-not (Test-IsoVolumeDescriptor -Path $isoFixture))
+[IO.File]::WriteAllBytes($isoFixture, [byte[]]::new(1000))
+Check 'unaligned tiny file rejected'                  (-not (Test-IsoVolumeDescriptor -Path $isoFixture))
+Remove-Item -LiteralPath $isoFixture -Force
+
+CheckThrows 'output must be an .iso'                  { Assert-OutputIsoLocation -OutputIso (Join-Path ([IO.Path]::GetTempPath()) 'x.img') }
+CheckThrows 'output cannot be in the Windows folder'  { Assert-OutputIsoLocation -OutputIso (Join-Path $env:SystemRoot 'tiny11.iso') }
+$ok = $true; try { Assert-OutputIsoLocation -OutputIso (Join-Path ([IO.Path]::GetTempPath()) 'tiny11.iso') } catch { $ok = $false }
+Check 'ordinary output folder accepted'               $ok
+CheckThrows 'work folder cannot be the profile root'  { Assert-WorkDirectoryLocation -Path $env:USERPROFILE }
+CheckThrows 'work folder cannot be under Windows'     { Assert-WorkDirectoryLocation -Path (Join-Path $env:SystemRoot 'Temp\t11') }
+
+$cancelFile = Join-Path ([IO.Path]::GetTempPath()) "t11-cancel-$PID.request"
+$previousCancel = $env:TINY11_CANCEL_FILE
+try {
+    $env:TINY11_CANCEL_FILE = $cancelFile
+    $ok = $true; try { Assert-BuildNotCancelled } catch { $ok = $false }
+    Check 'no cancel request: build continues'        $ok
+    [IO.File]::WriteAllText($cancelFile, 'now')
+    CheckThrows 'cancel request stops at the safe point' { Assert-BuildNotCancelled }
+    $ok = $true; try { Assert-BuildNotCancelled } catch { $ok = $false }
+    Check 'cancel fires once; cleanup safe points never re-throw' $ok
+    & (Get-Module tiny11utils) { $Script:BuildCancelRaised = $false } | Out-Null
+    CheckThrows 'stage start is a cancellation safe point' { Write-BuildProgress -Stage mount -Percent -1 -Label 'Mount' 6>$null }
+    & (Get-Module tiny11utils) { $Script:BuildCancelRaised = $false } | Out-Null
+    $ok = $true; try { Write-BuildProgress -Stage mount -Percent 100 -Label 'Mounted' 6>$null } catch { $ok = $false }
+    Check 'stage completion is never interrupted'     $ok
+} finally {
+    $env:TINY11_CANCEL_FILE = $previousCancel
+    if (Test-Path -LiteralPath $cancelFile) { Remove-Item -LiteralPath $cancelFile -Force }
+}
+
+# Mocked: component cleanup pending code, guarded Edge uninstall entries.
+$global:T11Test = @{ Rc = -2146498554; Removed = @(); Entries = @{} }
+& $module {
+    function script:Invoke-Native { param($FilePath, $ArgumentList, [switch]$StreamOutput) $global:T11Test.Rc }
+    function script:Write-BuildProgress { param($Stage, $Percent, $Label) }
+    function script:Test-Path { param($LiteralPath) $global:T11Test.Entries.ContainsKey(($LiteralPath -replace '^Registry::HKEY_LOCAL_MACHINE\\', 'HKLM\')) }
+    function script:Get-ItemProperty { param($LiteralPath) $global:T11Test.Entries[($LiteralPath -replace '^Registry::HKEY_LOCAL_MACHINE\\', 'HKLM\')] }
+    function script:Remove-RegistryValue { param($path, $Name) $global:T11Test.Removed += $path }
+} | Out-Null
+try {
+    Check 'pending cleanup (0x800F0806) is a reported skip' (-not (Invoke-ComponentCleanup -MountPath 'X:\mnt' 3>$null 6>$null))
+    $u = 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+    $w = 'HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    $global:T11Test.Entries = @{
+        "$w\Microsoft Edge"        = [pscustomobject]@{ DisplayName = 'Microsoft Edge'; Publisher = 'Microsoft Corporation' }
+        "$w\Microsoft Edge Update" = [pscustomobject]@{ DisplayName = 'Microsoft Edge Update'; Publisher = 'Someone Else' }
+        "$u\Microsoft EdgeWebView" = [pscustomobject]@{ DisplayName = 'Microsoft Edge WebView2 Runtime'; Publisher = 'Microsoft Corporation' }
+    }
+    $count = Remove-OfflineEdgeUninstallEntries -EdgeRemoved $true -WebViewRemoved $false 6>$null
+    Check 'Edge entry removed when files are gone'    ($global:T11Test.Removed -contains "$w\Microsoft Edge" -and $count -eq 1)
+    Check 'unexpected publisher is kept'              ($global:T11Test.Removed -notcontains "$w\Microsoft Edge Update")
+    Check 'WebView2 entry kept while its files remain' ($global:T11Test.Removed -notcontains "$u\Microsoft EdgeWebView")
+    $global:T11Test.Removed = @()
+    $null = Remove-OfflineEdgeUninstallEntries -EdgeRemoved $false -WebViewRemoved $false 6>$null
+    Check 'nothing removed when Edge files remain'    ($global:T11Test.Removed.Count -eq 0)
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+}
+
+Section 'Verified capability and optional-feature removal (mocked DISM)'
+$module = Get-Module tiny11utils   # the previous block re-imported the module
+$global:T11Test = @{ CapCalls = 0; FeatureCalls = 0; Disabled = @() }
+& $module {
+    function script:Write-BuildProgress { param($Stage, $Percent, $Label) }
+    function script:Get-WindowsCapability {
+        param($Path)
+        $global:T11Test.CapCalls++
+        if ($global:T11Test.CapCalls -eq 1) {
+            'App.StepsRecorder~~~~0.0.1.0', 'Microsoft.Windows.WordPad~~~~0.0.1.0', 'XPS.Viewer~~~~0.0.1.0' | ForEach-Object { [pscustomobject]@{ Name = $_; State = 'Installed' } }
+        } else {
+            [pscustomobject]@{ Name = 'App.StepsRecorder~~~~0.0.1.0'; State = 'NotPresent' }
+            [pscustomobject]@{ Name = 'Microsoft.Windows.WordPad~~~~0.0.1.0'; State = 'UninstallPending' }
+            [pscustomobject]@{ Name = 'XPS.Viewer~~~~0.0.1.0'; State = 'Installed' }
+        }
+    }
+    function script:Remove-WindowsCapability { param($Path, $Name) }
+    function script:Get-WindowsOptionalFeature {
+        param($Path)
+        $global:T11Test.FeatureCalls++
+        $done = $global:T11Test.FeatureCalls -gt 1
+        [pscustomobject]@{ FeatureName = 'Printing-XPSServices-Features'; State = $(if ($done) { 'DisabledWithPayloadRemoved' } else { 'Enabled' }) }
+        [pscustomobject]@{ FeatureName = 'WorkFolders-Client'; State = $(if ($done) { 'DisablePending' } else { 'Enabled' }) }
+        [pscustomobject]@{ FeatureName = 'Internet-Explorer-Optional-amd64'; State = 'Disabled' }
+        [pscustomobject]@{ FeatureName = 'Recall'; State = $(if ($done) { 'Enabled' } else { 'Enabled' }) }
+        [pscustomobject]@{ FeatureName = 'NetFx3'; State = 'Enabled' }
+    }
+    function script:Disable-WindowsOptionalFeature { param($Path, $FeatureName, [switch]$Remove, [switch]$NoRestart) $global:T11Test.Disabled += $FeatureName }
+} | Out-Null
+try {
+    $capFailures = Invoke-CapabilityRemovalStage -MountPath 'X:\mnt' 3>$null 6>$null
+    Check 'capability still installed after removal counts as a failure' ($capFailures -eq 1)
+    Check 'UninstallPending counted as deferred, not failed' ((& $module { $Script:DeferredCapabilityCount }) -eq 1)
+    $featureFailures = Invoke-OptionalFeatureRemovalStage -MountPath 'X:\mnt' -Architecture amd64 3>$null 6>$null
+    Check 'only enabled legacy features are targeted' (($global:T11Test.Disabled -join ',') -eq 'Printing-XPSServices-Features,WorkFolders-Client,Recall')
+    Check 'NetFx3 and other features are never touched' ($global:T11Test.Disabled -notcontains 'NetFx3')
+    Check 'payload-removed and pending states accepted; still-enabled fails' ($featureFailures -eq 1)
+    Check 'feature planner ignores already-disabled features' (@(Get-OptionalFeaturesToRemove -Features @{ 'WorkFolders-Client' = 'Disabled'; 'Recall' = 'Enabled' }) -join ',' -eq 'Recall')
+} finally {
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+}
+
+Section 'Media and servicing options (real temp files; DISM mocked)'
+$module = Get-Module tiny11utils
+$featureRoot = Join-Path ([IO.Path]::GetTempPath()) ("t11-features-$PID-" + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Force -Path "$featureRoot\pkgs", "$featureRoot\work\sources\sxs\sub" | Out-Null
+    $kb1 = "$featureRoot\pkgs\windows11.0-kb1-x64.msu"; $kb2 = "$featureRoot\pkgs\windows11.0-kb2-x64.cab"
+    [IO.File]::WriteAllText($kb1, 'msu payload'); [IO.File]::WriteAllText($kb2, 'cab payload')
+    $list = Resolve-UpdatePackageList -Path @($kb1, $kb2)
+    Check 'update list keeps the given order'            ($list.Count -eq 2 -and $list[0] -eq $kb1 -and $list[1] -eq $kb2)
+    Check 'UAC comma-joined list is split'               ((Resolve-UpdatePackageList -Path @("$kb1,$kb2")).Count -eq 2)
+    CheckThrows 'duplicate update package refused'       { Resolve-UpdatePackageList -Path @($kb1, $kb1) }
+    CheckThrows 'missing update package refused'         { Resolve-UpdatePackageList -Path @("$featureRoot\pkgs\nope.msu") }
+    [IO.File]::WriteAllText("$featureRoot\pkgs\notes.cap", 'x')
+    CheckThrows '.cap is not a servicing package'        { Resolve-UpdatePackageList -Path @("$featureRoot\pkgs\notes.cap") }
+    Check 'empty update list is empty'                   ((Resolve-UpdatePackageList -Path @()).Count -eq 0)
+
+    $global:T11Test = @{ Dism = @() }
+    & $module {
+        function script:Invoke-DismChecked { param([string]$Label, [Parameter(ValueFromRemainingArguments = $true)][string[]]$DismArgs) $global:T11Test.Dism += , @($DismArgs) }
+        function script:Write-BuildProgress { param($Stage, $Percent, $Label) }
+    } | Out-Null
+    $staging = "$featureRoot\staging"
+    $records = Install-OfflineUpdatePackages -MountPath 'X:\mnt' -Packages $list -StagingRoot $staging 6>$null
+    Check 'updates integrated in order'                  ($global:T11Test.Dism.Count -eq 2 -and ($global:T11Test.Dism[0] -join ' ') -match '000\\windows11\.0-kb1' -and ($global:T11Test.Dism[1] -join ' ') -match '001\\windows11\.0-kb2')
+    Check 'each package added from its private folder'   (($global:T11Test.Dism[0] -join ' ') -match '/Add-Package' -and ($global:T11Test.Dism[0] -join ' ') -match '/Image:X:\\mnt')
+    Check 'records carry name and SHA-256'               ($records.Count -eq 2 -and $records[0].Name -eq 'windows11.0-kb1-x64.msu' -and $records[0].Sha256 -eq (Get-FileHash -LiteralPath $kb1 -Algorithm SHA256).Hash)
+    Check 'private staging removed afterwards'           (-not (Test-Path -LiteralPath $staging))
+    Check 'source packages are untouched'                ((Get-Content -Raw -LiteralPath $kb1) -eq 'msu payload')
+    Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
+    Remove-Variable -Name T11Test -Scope Global
+
+    $expected = [pscustomobject]@{ Edition = 'Professional'; Architecture = 'x64'; InstallationType = 'Client'; Version = '10.0.26300.9457'; Language = 'en-US' }
+    $after = Resolve-ServicedImageExpectation -Expected $expected -Committed ([pscustomobject]@{ Edition = 'Professional'; Architecture = 'x64'; InstallationType = 'Client'; Version = '10.0.26300.9600' }) 6>$null
+    Check 'updated revision accepted in the same family' ($after.Version -eq '10.0.26300.9600' -and $after.Language -eq 'en-US')
+    $enablement = Resolve-ServicedImageExpectation -Expected ([pscustomobject]@{ Edition = 'Professional'; Version = '10.0.22621.1' }) -Committed ([pscustomobject]@{ Edition = 'Professional'; Version = '10.0.22631.2' }) 6>$null
+    Check 'enablement build 22621 -> 22631 accepted'     ($enablement.Version -eq '10.0.22631.2')
+    CheckThrows 'different servicing family refused'     { Resolve-ServicedImageExpectation -Expected $expected -Committed ([pscustomobject]@{ Edition = 'Professional'; Version = '10.0.26340.1' }) }
+    CheckThrows 'edition change refused'                 { Resolve-ServicedImageExpectation -Expected $expected -Committed ([pscustomobject]@{ Edition = 'Core'; Version = '10.0.26300.9600' }) }
+
+    [IO.File]::WriteAllBytes("$featureRoot\work\sources\sxs\sub\microsoft-windows-netfx3.cab", [byte[]]::new(4096))
+    $omitted = Remove-SetupNetFx3Payload -WorkRoot "$featureRoot\work" 6>$null
+    Check '.NET 3.5 payload omitted and counted'         ($omitted -eq 4096 -and -not (Test-Path -LiteralPath "$featureRoot\work\sources\sxs"))
+    Check 'missing sxs omits nothing'                    ((Remove-SetupNetFx3Payload -WorkRoot "$featureRoot\work" 6>$null) -eq 0)
+
+    $wim = "$featureRoot\boot.wim"
+    $header = [byte[]]::new(208); [Text.Encoding]::ASCII.GetBytes('MSWIM').CopyTo($header, 0); [BitConverter]::GetBytes([uint32]1).CopyTo($header, 120)
+    [IO.File]::WriteAllBytes($wim, $header)
+    Check 'WIM boot index read from the header'          ((Get-WimBootIndex -Path $wim) -eq 1)
+    [IO.File]::WriteAllBytes($wim, [byte[]]::new(208))
+    CheckThrows 'non-WIM file refused'                   { Get-WimBootIndex -Path $wim }
+
+    $mnt = "$featureRoot\mount"
+    foreach ($dir in 'Windows\System32\config', 'Windows\Temp\sub', 'Windows\Logs\CBS', 'Windows\Logs\DISM', 'Windows\Minidump', 'Windows\SoftwareDistribution\Download', 'Windows\WinSxS') {
+        New-Item -ItemType Directory -Force -Path (Join-Path $mnt $dir) | Out-Null
+    }
+    [IO.File]::WriteAllText("$mnt\Windows\System32\config\SYSTEM", 'hive')
+    [IO.File]::WriteAllBytes("$mnt\Windows\Temp\sub\a.tmp", [byte[]]::new(100))
+    [IO.File]::WriteAllBytes("$mnt\Windows\Logs\CBS\CbsPersist_1.cab", [byte[]]::new(50))
+    [IO.File]::WriteAllText("$mnt\Windows\Logs\CBS\CBS.log", 'current log')
+    [IO.File]::WriteAllBytes("$mnt\Windows\Logs\DISM\dism.log.bak", [byte[]]::new(25))
+    [IO.File]::WriteAllText("$mnt\Windows\Logs\DISM\dism.log", 'current log')
+    [IO.File]::WriteAllBytes("$mnt\Windows\Minidump\1.dmp", [byte[]]::new(10))
+    [IO.File]::WriteAllBytes("$mnt\Windows\SoftwareDistribution\Download\update.cab", [byte[]]::new(200))
+    [IO.File]::WriteAllText("$mnt\Windows\WinSxS\pending.xml", 'pending')
+    $cleaned = Remove-OfflineRedundantData -MountPath $mnt 6>$null
+    Check 'pending servicing keeps update/temp folders'  ((Test-Path -LiteralPath "$mnt\Windows\Temp\sub\a.tmp") -and (Test-Path -LiteralPath "$mnt\Windows\SoftwareDistribution\Download\update.cab") -and $cleaned.Skipped -contains 'Windows\Temp')
+    Check 'archived logs and dumps removed'              (-not (Test-Path -LiteralPath "$mnt\Windows\Logs\CBS\CbsPersist_1.cab") -and -not (Test-Path -LiteralPath "$mnt\Windows\Logs\DISM\dism.log.bak") -and -not (Test-Path -LiteralPath "$mnt\Windows\Minidump\1.dmp"))
+    Check 'current CBS/DISM logs are kept'               ((Test-Path -LiteralPath "$mnt\Windows\Logs\CBS\CBS.log") -and (Test-Path -LiteralPath "$mnt\Windows\Logs\DISM\dism.log"))
+    Check 'logical bytes counted'                        ($cleaned.Bytes -eq 85 -and $cleaned.Files -eq 3)
+    Remove-Item -LiteralPath "$mnt\Windows\WinSxS\pending.xml" -Force
+    $cleaned = Remove-OfflineRedundantData -MountPath $mnt 6>$null
+    Check 'no pending: temp and downloads emptied'       (-not (Test-Path -LiteralPath "$mnt\Windows\Temp\sub") -and -not (Test-Path -LiteralPath "$mnt\Windows\SoftwareDistribution\Download\update.cab") -and (Test-Path -LiteralPath "$mnt\Windows\Temp"))
+    CheckThrows 'redundant-data cleanup refuses non-images' { Remove-OfflineRedundantData -MountPath $featureRoot }
+} finally {
+    Remove-Item -LiteralPath $featureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+foreach ($s in 'tiny11maker.ps1', 'tiny11Coremaker.ps1') {
+    $text = Get-Content -Raw (Join-Path $repo $s)
+    Check "$s : updates integrate before any app removal" ($text.IndexOf('Install-OfflineUpdatePackages') -ge 0 -and $text.IndexOf('Install-OfflineUpdatePackages') -lt $text.IndexOf('Invoke-AppRemovalStage'))
+    Check "$s : updated version accepted only after commit" ($text.IndexOf('Resolve-ServicedImageExpectation') -gt $text.IndexOf('Invoke-SafeDismountImage -Path $mountDir -Save'))
+    Check "$s : boot.wim shrink runs after the Setup patch" ($text.IndexOf('Invoke-BootImageShrink') -gt $text.IndexOf('Invoke-BootImageStage'))
+    Check "$s : redundant data removed before commit"     ($text.IndexOf('Remove-OfflineRedundantData') -ge 0 -and $text.IndexOf('Remove-OfflineRedundantData') -lt $text.IndexOf('Invoke-SafeDismountImage -Path $mountDir -Save'))
 }
 
 #======================================================================
@@ -998,6 +1336,64 @@ Check 'GUI shows every preset flag'        ((@($flagInfo.Name | Sort-Object) -jo
 Check 'GUI flag hints present'             (@($flagInfo | Where-Object { -not $_.Hint -or -not $_.Label }).Count -eq 0)
 $rt = ConvertFrom-PresetJson -Path (& { $p = Join-Path $tmpGui 'rt.json'; [IO.File]::WriteAllText($p, (ConvertTo-PresetJson -Flags (Resolve-BuildPreset Gaming))); $p })
 Check 'preset JSON round-trip'             (@(Get-PresetFlagNames | Where-Object { [bool]$rt[$_] -ne [bool](Resolve-BuildPreset Gaming)[$_] }).Count -eq 0)
+
+Check 'GUI refuses to overwrite built-in presets' ((Test-GuiReservedPresetPath -Path (Join-Path $repo 'presets\Default.json') -RepoRoot $repo) -and
+    (Test-GuiReservedPresetPath -Path (Join-Path $repo 'presets\minimal-vm.json') -RepoRoot $repo))
+Check 'GUI allows other preset names'      (-not (Test-GuiReservedPresetPath -Path (Join-Path $repo 'presets\my-preset.json') -RepoRoot $repo) -and
+    -not (Test-GuiReservedPresetPath -Path (Join-Path $tmpGui 'default.json') -RepoRoot $repo))
+
+$opt = Get-GuiDefaultState
+Check 'GUI defaults: new media options off'  (-not $opt.OmitNetFx3Payload -and -not $opt.ShrinkBootImage -and -not $opt.RemoveRedundantData -and -not $opt.KeepUpdateUninstall -and @($opt.UpdatePackages).Count -eq 0)
+$opt.Source = $fakeIso; $opt.Index = 6; $opt.OutputIso = Join-Path $tmpGui 'out.iso'
+$optKb = Join-Path $tmpGui 'kb5000001.msu'; [IO.File]::WriteAllText($optKb, 'msu')
+$opt.UpdatePackages = @($optKb); $opt.OmitNetFx3Payload = $true; $opt.ShrinkBootImage = $true; $opt.RemoveRedundantData = $true; $opt.KeepUpdateUninstall = $true
+$optReq = ConvertTo-GuiBuildRequest -State $opt -WorkDir $tmpGui
+Check 'request: media options forwarded'     ($optReq.Arguments.OmitNetFx3Payload -and $optReq.Arguments.ShrinkBootImage -and $optReq.Arguments.RemoveRedundantData -and $optReq.Arguments.KeepUpdateUninstall)
+Check 'request: update packages in order'    (@($optReq.Arguments.UpdatePackage).Count -eq 1 -and @($optReq.Arguments.UpdatePackage)[0] -eq $optKb)
+$opt.Fast = $true
+Check 'request: -Fast drops KeepUpdateUninstall' (-not (ConvertTo-GuiBuildRequest -State $opt -WorkDir $tmpGui).Arguments.Contains('KeepUpdateUninstall'))
+$opt.Fast = $false; $opt.Builder = 'Core'
+$coreReq = ConvertTo-GuiBuildRequest -State $opt -WorkDir $tmpGui
+Check 'request: Core never gets KeepUpdateUninstall' (-not $coreReq.Arguments.Contains('KeepUpdateUninstall') -and $coreReq.Arguments.ShrinkBootImage)
+$opt.Builder = 'Standard'; $opt.UpdatePackages = @((Join-Path $tmpGui 'missing.msu'))
+Check 'validation: missing update package is an error' (@(Test-GuiBuildRequest -State $opt | Where-Object { $_.Level -eq 'Error' -and $_.Message -match 'update package' }).Count -eq 1)
+$opt.UpdatePackages = @($optKb)
+$settingsFile = Join-Path $tmpGui 'opt-settings.json'
+Export-GuiSettings -State $opt -Path $settingsFile
+$round = Import-GuiSettings -Path $settingsFile
+Check 'settings round-trip keeps media options' ($round.ShrinkBootImage -and $round.RemoveRedundantData -and $round.KeepUpdateUninstall -and $round.OmitNetFx3Payload -and @($round.UpdatePackages)[0] -eq $optKb)
+
+# GUI -> builder contract: with every option on, each argument must be a real builder parameter.
+$all = Get-GuiDefaultState
+$all.Source = $fakeIso; $all.Index = 1; $all.OutputIso = Join-Path $tmpGui 'all.iso'; $all.NoPrompt = $true; $all.DryRun = $true; $all.Scratch = 'D'
+$all.Password = 'p'; $all.PasswordConfirm = 'p'; $all.ComputerName = 'PC'; $all.Locale = 'en-US'; $all.ZeroTouch = $true; $all.UnattendFile = $fakeIso
+$all.EnableNetFx3 = $true; $all.DriverPath = $tmpGui; $all.Browser = 'Firefox'; $all.Payload = $true; $all.DefenderExclusion = $true
+$all.UpdatePackages = @($fakeIso); $all.OmitNetFx3Payload = $true; $all.ShrinkBootImage = $true; $all.RemoveRedundantData = $true; $all.KeepUpdateUninstall = $true
+$all.Flags.LowRam = $true; $all.Flags.DisableDriverUpdates = $true; $all.SkipTweak = @('Taskbar'); $all.CompressionEngine = 'Wimlib'; $all.CompressionThreads = 4
+foreach ($builder in 'Standard', 'Core') {
+    $all.Builder = $builder
+    $contract = ConvertTo-GuiBuildRequest -State $all -WorkDir $tmpGui
+    $builderAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo $contract.Script), [ref]$null, [ref]$null)
+    $accepted = @($builderAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $rejected = @($contract.Arguments.Keys | Where-Object { $accepted -notcontains $_ })
+    Check "GUI never sends $builder an unknown parameter ($($rejected -join ','))" ($rejected.Count -eq 0)
+}
+
+$wrapped = Format-GuiTip -Text (('word ' * 60).Trim()) -Width 40
+Check 'tooltips wrap at word boundaries'     (@($wrapped -split "`n" | Where-Object { $_.Length -gt 40 }).Count -eq 0 -and ($wrapped -split "`n").Count -gt 1)
+$guiText = [IO.File]::ReadAllText((Join-Path $repo 'lib\tiny11gui.psm1'))
+$interactive = [regex]::Matches($guiText, '(?m)^\s*\$(\w+)\s*=\s*New-UiControl -Type (CheckBox|ComboBox|Button|TextBox|RadioButton|ListView|CheckedListBox|ListBox)\b') | ForEach-Object { $_.Groups[1].Value }
+$helped = @([regex]::Matches($guiText, 'SetToolTip\(\$(\w+)') | ForEach-Object { $_.Groups[1].Value }) + @([regex]::Matches($guiText, '(?m)^\s*,?@\(\$(\w+),') | ForEach-Object { $_.Groups[1].Value })
+$noHelp = @($interactive | Where-Object { $helped -notcontains $_ } | Select-Object -Unique)
+Check "every interactive GUI control has mouse-over help ($($noHelp -join ', '))" ($noHelp.Count -eq 0)
+$readyChecks = @(Test-GuiBuildRequest -State (Get-GuiDefaultState) | Where-Object { $_.Message -match 'oscdimg|Offline-ready|wimlib' })
+Check 'Checks report offline tool readiness'  ($readyChecks.Count -eq 1)
+
+$cancelPath = Get-GuiCancelRequestPath -WorkDir $tmpGui
+Check 'GUI cancel request path is per process' ($cancelPath -like "*gui-cancel-$PID.request" -and $cancelPath.StartsWith([IO.Path]::GetFullPath($tmpGui)))
+Request-GuiBuildCancel -CancelFile $cancelPath
+Check 'GUI cancel writes the safe-point request' (Test-Path -LiteralPath $cancelPath)
+Remove-Item -LiteralPath $cancelPath -Force
 
 $st = Get-GuiDefaultState
 Check 'default state: Default preset'      ($st.Preset -eq 'Default' -and -not (Test-GuiFlagsModified -Flags $st.Flags -Preset 'Default'))
@@ -1149,7 +1545,32 @@ foreach ($s in 'tiny11maker.ps1', 'tiny11Coremaker.ps1') {
     Check "$s : final ISO uses the prepared Oscdimg path" ($text -match 'New-Tiny11Iso[^\r\n]*-OscdimgPath \$Script:oscdimgPath')
     Check "$s : source/workspace overlap is checked before work deletion and copying" ($text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -ge 0 -and $text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -lt $text.IndexOf('Remove-Item -Path $workRoot') -and $text.IndexOf('Assert-SourceWorkspaceSeparation -SourceRoot') -lt $text.IndexOf('Invoke-Robocopy -Source'))
     Check "$s : verify mount folders before deleting source files" ($text.IndexOf('Remove-ScratchMountDirectory -ScratchRoot') -lt $text.IndexOf('Remove-Item -LiteralPath $workRoot'))
+    $cleanupAt = $text.IndexOf('Invoke-ComponentCleanup -MountPath $mountDir')
+    $netFxAt = $text.IndexOf('-FeatureName NetFx3')
+    Check "$s : component cleanup runs before .NET 3.5 (ResetBase cannot drop it)" ($cleanupAt -ge 0 -and $netFxAt -gt $cleanupAt)
+    Check "$s : ResetBase no longer tied to .NET 3.5" ($text -notmatch 'NoResetBase:\$EnableNetFx3')
+    Check "$s : servicing-tool gate follows image identification" ($text.IndexOf('Assert-ServicingToolsSupportImage') -gt $text.IndexOf('$info = Get-ImageInfo'))
+    Check "$s : NTFS is verified on the default work drive too" ($text -notmatch 'if \(\$SCRATCH -or \$WorkDirectory\) \{ \$null = Test-ScratchDiskNtfs')
+    Check "$s : DISM session options set before image work" ($text.IndexOf('Set-DismSessionOptions') -ge 0 -and $text.IndexOf('Set-DismSessionOptions') -lt $text.IndexOf('Invoke-Robocopy -Source'))
+    Check "$s : output location validated early" ($text.IndexOf('Assert-OutputIsoLocation') -ge 0 -and $text.IndexOf('Assert-OutputIsoLocation') -lt $text.IndexOf('Resolve-WindowsSource -IsoParameter'))
+    Check "$s : cancellation safe points at stage boundaries" (([regex]::Matches($text, '(?m)^\s*Assert-BuildNotCancelled\s*$')).Count -ge 6)
+    Check "$s : registry stage receives the verified Edge file result" ($text -match 'Invoke-RegistryStage[^\r\n]*-EdgeFiles \$edgeFiles')
 }
+$readmeText = Get-Content -Raw (Join-Path $repo 'README.md')
+foreach ($s in 'tiny11maker.ps1', 'tiny11Coremaker.ps1', 'tiny11iso.ps1') {
+    $scriptAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo $s), [ref]$null, [ref]$null)
+    $scriptParams = @($scriptAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath } | Where-Object { $_ -ne 'Help' })
+    $helpKeys = @($scriptAst.GetHelpContent().Parameters.Keys | ForEach-Object { $_.ToUpperInvariant() })
+    $undocumented = @($scriptParams | Where-Object { $helpKeys -notcontains $_.ToUpperInvariant() })
+    Check "$s : every parameter has .PARAMETER help ($($undocumented -join ','))" ($undocumented.Count -eq 0)
+    $notInReadme = @($scriptParams | Where-Object { $readmeText -notmatch "-$_\b" })
+    Check "$s : every parameter is in the README ($($notInReadme -join ','))" ($notInReadme.Count -eq 0)
+}
+$coreText = Get-Content -Raw (Join-Path $repo 'tiny11Coremaker.ps1')
+Check 'Core: no takeown/icacls over WinSxS'            ($coreText -notmatch 'Grant-AdminFullControl')
+Check 'Core: no cmd rmdir fallback'                    ($coreText -notmatch "cmd\.exe")
+Check 'Core: native in-place WinSxS trim'              ($coreText -match 'Invoke-CoreWinSxSTrim -MountPath \$mountDir')
+Check 'Core: pending check precedes the WinSxS trim'   ($coreText.IndexOf('Get-OfflinePendingOperations') -ge 0 -and $coreText.IndexOf('Get-OfflinePendingOperations') -lt $coreText.IndexOf('Invoke-CoreWinSxSTrim'))
 $manifest = Read-PowerShellDataFile (Join-Path $repo 'lib\tiny11utils.psd1')
 $defined = @((Get-Command -Module tiny11utils).Name)
 $notExported = @($defined | Where-Object { $manifest.FunctionsToExport -notcontains $_ })

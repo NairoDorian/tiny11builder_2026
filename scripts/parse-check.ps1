@@ -15,6 +15,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 Import-Module -Name (Join-Path $repo 'lib\tiny11utils.psm1') -Force -DisableNameChecking
 Import-Module -Name (Join-Path $repo 'lib\tiny11gui.psm1') -Force -DisableNameChecking
 Import-Module -Name (Join-Path $repo 'lib\tiny11media.psm1') -Force -DisableNameChecking
+Import-Module -Name (Join-Path $repo 'lib\tiny11download.psm1') -Force -DisableNameChecking
 Import-Module Dism -ErrorAction SilentlyContinue       # Mount-WindowsImage & co.
 Import-Module Storage -ErrorAction SilentlyContinue    # Mount-DiskImage, Get-Volume
 

@@ -1,0 +1,20 @@
+{
+  "Checked": "2026-11-05",
+  "Purpose": "Live check of the optional ISO recognition against Microsoft's published hash table (informational feature).",
+  "Source": {
+    "Path": "C:\\Users\\Z\\Downloads\\PROJECTS\\ISOs\\Windows11_Client_x64_en-us_26300_9457.iso",
+    "Bytes": 9047330816,
+    "Sha256": "BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650",
+    "HashSeconds": 11.6
+  },
+  "MicrosoftPages": {
+    "x64": { "Url": "https://www.microsoft.com/en-us/software-download/windows11", "ProductEditionId": "3813", "Release": "26H2", "Rows": 38 },
+    "arm64": { "Url": "https://www.microsoft.com/en-us/software-download/windows11arm64", "ProductEditionId": "3816", "Rows": 38 }
+  },
+  "Result": { "Status": "Verified", "Label": "English 64-bit", "Architecture": "x64", "Release": "26H2" },
+  "Commands": [
+    "pwsh -NoProfile -File .\\tiny11iso.ps1 -Verify <iso>",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File .\\tiny11iso.ps1 -ListHashes -Architecture arm64"
+  ],
+  "NotTested": "The resumable download path was exercised only against an in-memory fake server (scripts\\test-iso-download.ps1); no real multi-GB Microsoft download was performed."
+}

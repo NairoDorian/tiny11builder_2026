@@ -104,6 +104,18 @@
             Notes = 'DisableWindowsSpotlightFeatures also turns off Spotlight wallpapers on the lock screen and desktop.'
         }
         @{
+            Id    = 'EdgePromotions'
+            Title = 'Edge first-run wizard, recommendations, feedback prompts and Spotlight promotions off (when Edge is kept or reinstalled)'
+            When  = 'DisableAds'
+            Set   = @(
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|HideFirstRunExperience|REG_DWORD|1'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|ShowRecommendationsEnabled|REG_DWORD|0'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|UserFeedbackAllowed|REG_DWORD|0'
+                'HKLM\zSOFTWARE\Policies\Microsoft\Edge|SpotlightExperiencesAndRecommendationsEnabled|REG_DWORD|0'
+            )
+            Notes = 'Documented Microsoft Edge policies (learn.microsoft.com/deployedge/microsoft-edge-policies): HideFirstRunExperience, ShowRecommendationsEnabled, UserFeedbackAllowed, SpotlightExperiencesAndRecommendationsEnabled. They only matter if Edge is kept or later reinstalled. Adopted from the upstream WinUI 0.2 "edge" policy group.'
+        }
+        @{
             Id    = 'Telemetry'
             Title = 'Diagnostic data at the minimum, telemetry services and feedback prompts off'
             When  = 'DisableTelemetry'
@@ -271,14 +283,15 @@
                 'HKLM\zSOFTWARE\WOW6432Node\Microsoft\EdgeUpdate|DoNotUpdateToEdgeWithChromium|REG_DWORD|1'
             )
             Delete = @(
-                'HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge'
-                'HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update'
+                # The Edge / Edge Update / WebView2 "installed programs" entries are NOT
+                # deleted here: Remove-OfflineEdgeUninstallEntries removes them only when
+                # the matching files are verifiably gone and DisplayName/Publisher match.
                 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}'
                 'HKLM\zSOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}'
                 'HKLM\zSYSTEM\ControlSet001\Services\edgeupdate'
                 'HKLM\zSYSTEM\ControlSet001\Services\edgeupdatem'
             )
-            Notes = 'Edge WebView2 is kept unless the preset sets RemoveWebView: Widgets, Teams, Outlook and many third-party apps need it.'
+            Notes = 'Edge WebView2 is kept unless the preset sets RemoveWebView: Widgets, Teams, Outlook and many third-party apps need it. Uninstall entries for Edge, Edge Update and WebView2 (both registry views) are removed by the builder only after their files are confirmed gone and the entry identifies as Microsoft Corporation; otherwise they are kept and logged.'
         }
         @{
             Id    = 'OneDriveRemoval'

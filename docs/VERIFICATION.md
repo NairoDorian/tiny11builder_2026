@@ -15,7 +15,30 @@ Updated **2026-10-05**. Latest application implementation audited: `2ae045d`. Do
 
 Do not use a success message or output size as a substitute for the next level. A build with counted warnings needs investigation of the affected patch. No verified target VM installation exists in the saved record.
 
-## Latest application regression results
+## Latest application regression results — 2026-11-05 (uncommitted working tree)
+
+After the upstream WinUI 0.2 reimplementation (see [UPSTREAM_MERGE_PLAN.md](UPSTREAM_MERGE_PLAN.md)) and the ISO recognition/download work:
+
+| Check | Windows PowerShell 5.1 | PowerShell 7 |
+|---|---:|---:|
+| Core helpers / catalog / answer files / mocked stages / fake GUI / help & GUI-contract audits | 2,087 passed, 0 failed | 2,089 passed, 0 failed |
+| ISO recognition, resumable download (offline fake server), assisted hand-off detection | 46 passed | 46 passed |
+| Real WIM/ESD export fixtures | 129 passed | 129 passed |
+| ISO metadata / progress / timing fixtures | 23 passed | 23 passed |
+| Parse and command resolution | passed | passed |
+| Generated freshness, lint | — | passed |
+
+Live, read-only: `tiny11iso.ps1 -Verify` recognized the source ISO as Microsoft's 26H2 English 64-bit entry, and `-ListHashes` read the ARM64 table under 5.1 ([evidence](verification/2026-11-05/iso-recognition.json)). No real multi-GB Microsoft download was run; the download path is covered by the fake-server suite only.
+
+New real-file fixtures run **non-elevated** on the dev host:
+- native deletion keeps a surviving hard link's content, read-only attribute and exact ACL, does not follow junctions, and handles >260-character paths;
+- the Core WinSxS plan refuses missing runtime/metadata families;
+- ISO volume-descriptor detection, WIM boot-index reading, and `.NET 3.5` payload omission;
+- redundant-data cleanup keeps update/temp folders while `pending.xml` exists and keeps current logs.
+
+DISM, update integration, capability/feature states and the registry native fallback are **mocked**. Hive load/unload seams are mocked in the suite so no test touches the host `HKLM`. The 5.1 run needs the machine `PSModulePath` when started from a PowerShell 7 parent (otherwise 5.1 cannot load its own `Get-Acl`); this is a launcher environment detail, not a product change. **No fresh full ISO build or VM installation of this revision exists.**
+
+## Previous application regression results
 
 For `2ae045de3b8a0c4d8dd726534fea906c3cb78b14`:
 
@@ -32,6 +55,14 @@ For `2ae045de3b8a0c4d8dd726534fea906c3cb78b14`:
 Local engines were 5.1.26100.9549 and 7.6.5. Different shells/platform conditions can change a small number of conditional checks; totals are a dated observation, not a permanent assertion in new tests. [Saved result and source hashes](verification/2026-10-05/post-review-verification.json). [All three CI jobs passed](https://github.com/NairoDorian/tiny11builder_2026/actions/runs/37245856681): PowerShell 5.1, PowerShell 7, XML/JSON.
 
 The new control-set cases simulate Default=2, write/delete/service routing, missing services, denied DWORD fallback destination, invalid/missing selection, cleanup tracking and unload reset. No real mounted SYSTEM hive with Default=2 was serviced in this audit. Source/workspace separation is path-tested before copy/deletion. Oscdimg tests include valid/corrupt/offline/wrong-hash downloads, atomic publish/cleanup, retained-tool precedence and prepared-path mastering. A **fresh actual Microsoft tool download** matched its pin, native help ran, second initialization found it, and the disposable fixture was removed; [download result](verification/2026-10-05/oscdimg-live-check.json). Native help exit 1 is recorded as normal help behavior.
+
+Reading these totals correctly: sections that inject recorders with `& $module { ... }` exercise the caller's use of a stage function, not the stage function itself, and the file-only registry section is skipped silently on a host without `offreg.dll` — treat a CI run there as "not executed" rather than "passed". The preset assertions check that every flag key is present with no unknown keys; they do **not** compare preset values against the built-in Default table.
+
+## Documentation-only changes and what they do not prove
+
+A comment, help-text or Markdown edit proves only that the files parse and the checks still pass. It cannot promote an earlier fixture, benchmark or saved-image inspection into a current-revision full build, and it never establishes that a newly documented behavior was observed. Where this pass corrected or added a description of behavior, treat the description as a claim about the **code**, not a new observation: the Core `-NoResetBase`/`-EnableNetFx3` interaction is the clearest case — it is now documented as an open divergence, and documenting it changed no test and proves nothing about a Core build's .NET 3.5 payload.
+
+`update-generated.ps1 -Check` is the one documentation check with teeth: it fails if the catalog, presets, answer generator or module exports changed without regeneration. Run it after any doc-affecting edit rather than trusting the prose.
 
 ## Full-build history and provenance
 
@@ -76,6 +107,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-core-helpers.
 pwsh -NoProfile -File .\scripts\test-core-helpers.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-media-progress.ps1
 pwsh -NoProfile -File .\scripts\test-media-progress.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-iso-download.ps1
+pwsh -NoProfile -File .\scripts\test-iso-download.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-export-pipeline.ps1
 pwsh -NoProfile -File .\scripts\test-export-pipeline.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-generated.ps1 -Check

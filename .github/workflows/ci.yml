@@ -42,6 +42,10 @@ jobs:
         shell: powershell
         run: .\scripts\test-media-progress.ps1
 
+      - name: ISO recognition and resumable download tests (offline fixtures)
+        shell: powershell
+        run: .\scripts\test-iso-download.ps1
+
       - name: Real WIM and ESD export tests
         shell: powershell
         run: .\scripts\test-export-pipeline.ps1
@@ -90,6 +94,10 @@ jobs:
       - name: File-only ISO reader and progress tests
         shell: pwsh
         run: .\scripts\test-media-progress.ps1
+
+      - name: ISO recognition and resumable download tests (offline fixtures)
+        shell: pwsh
+        run: .\scripts\test-iso-download.ps1
 
       - name: Real WIM and ESD export tests
         shell: pwsh

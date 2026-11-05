@@ -1,7 +1,14 @@
 # Read only optical filesystem metadata; never attach an ISO or service an image.
+# Powers first-use edition selection: the WIM's XML is read straight out of the ISO
+# file stream, so the edition list needs no mount, download, elevation or cache and
+# nothing here can modify media. Anything requiring servicing belongs in
+# tiny11utils.psm1, not here.
 $Script:MediaRoot = $PSScriptRoot
 
 function Get-WindowsReleaseHint {
+    # Display-only guess from the file name, shown before real metadata is parsed.
+    # It is deliberately labeled a hint: builds and release names can both be wrong
+    # or absent, so it must never be used to pick an index or fill in edition data.
     param([string]$Source)
     $name = [IO.Path]::GetFileName($Source)
     if ($name -match '(?i)(21H2|22H2|23H2|24H2|25H2|26H1|26H2)') {
@@ -15,6 +22,12 @@ function Get-WindowsReleaseHint {
 }
 
 function Read-WimMetadata {
+    # Parses the uncompressed WIM XML resource at the header's offset and returns
+    # one object per IMAGE. The header is authoritative: a header mismatch, a
+    # compressed resource or an out-of-range/oversized offset throws rather than
+    # guessing. Reads are size-bounded, DTD processing is prohibited, the resolver
+    # is disabled and the stream is disposed, so hostile media cannot redirect or
+    # exhaust anything.
     param([Parameter(Mandatory=$true)][IO.Stream]$Stream)
     $reader = New-Object IO.BinaryReader($Stream, [Text.Encoding]::Unicode, $true)
     try {
@@ -64,6 +77,10 @@ function Read-WimMetadata {
 }
 
 function Get-IsoImageEditions {
+    # Reads editions from an ISO without mounting it. UDF is tried first, then
+    # ISO9660, since Windows media is normally UDF but either may appear.
+    # Split SWM media is rejected explicitly instead of silently reporting the
+    # editions of only one part; the caller must pass an explicit image index.
     param([Parameter(Mandatory=$true)][string]$Path)
     # Bundled MIT libraries: no first-use download, installation, elevation or cache.
     foreach ($component in 'Streams','Core','Iso9660','Udf') {

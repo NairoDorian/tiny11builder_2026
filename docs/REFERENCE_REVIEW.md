@@ -1,4 +1,17 @@
-# Reference branches and fork review — 2026-10-05
+# Reference branches and fork review
+
+## Refresh — 2026-11-04
+
+[Fetch audit](verification/2026-11-04/reference-sync.json).
+
+- **ntdevlabs/tiny11builder** moved its default branch to `winui-preview` (head `38f7ab6`, tag `winui-v0.2.0`). `main` no longer exists; the old head `00e7d8a` survives as branch `tiny11WinUI`.
+- The project is now a C#/.NET 8 WinUI 3 app with **no license file**. Its PowerShell scripts are byte-unchanged.
+- The catalog now tracks `winui-preview`. Its behaviors were studied and reimplemented in PowerShell, never copied; the per-feature map, decisions and status are in [UPSTREAM_MERGE_PLAN.md](UPSTREAM_MERGE_PLAN.md).
+- `chrisGrando_tiny11maker-reforged` advanced to `5c2d84d` (README-only, 4 lines; nothing to import).
+- `namnguyen97x/tiny-auto-builder` and `icis-org/tiny11builder` return *Repository not found*. Their local checkouts (`4f9632e`, `7bff69b`) are preserved and reported as `unavailable`.
+- All other heads are unchanged.
+
+## Review — 2026-10-05
 
 Current application incorporation: **`2ae045d`**, with [all CI checks passed](https://github.com/NairoDorian/tiny11builder_2026/actions/runs/37245856681). The branch heads/statuses below are snapshots of the 2026-10-05 fetch, not promises they never change. Start with [WORKING_NOTES.md](WORKING_NOTES.md), [PROJECT_GUIDE.md](PROJECT_GUIDE.md) and [VERIFICATION.md](VERIFICATION.md) for product/permissions/evidence. The new references are intentionally retained locally despite the earlier request to clean generated media; reference source is not patched-image cache data.
 

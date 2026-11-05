@@ -22,6 +22,17 @@ function Invoke-ReferenceGit {
     if ($LASTEXITCODE -ne 0) { throw "git $($Arguments[0]) failed (exit $LASTEXITCODE)." }
     return $output
 }
+function Get-ReferenceRemoteState {
+    # ok | missing-repository | missing-branch | error. Probes before fetching so a
+    # deleted fork or renamed branch is reported instead of failing the whole run.
+    param([string]$Target, [string]$Branch)
+    $previous=$ErrorActionPreference; $ErrorActionPreference='Continue'
+    try { $text=@(& git ls-remote --heads $Target $Branch 2>&1 | ForEach-Object { "$_" }); $code=$LASTEXITCODE }
+    finally { $ErrorActionPreference=$previous }
+    if ($code -ne 0) { if (($text -join ' ') -match 'not found') { return 'missing-repository' }; return 'error' }
+    if (-not ($text | Where-Object { $_ -match ('refs/heads/'+[regex]::Escape($Branch)+'$') })) { return 'missing-branch' }
+    return 'ok'
+}
 foreach ($reference in $references) {
     $result=[ordered]@{ Name=$reference.Name; Url=$reference.Url; Branch=$reference.Branch; Before=$null; After=$null; Status=$null; Detail=$null }
     try {
@@ -34,9 +45,17 @@ foreach ($reference in $references) {
             $origin=(Invoke-ReferenceGit @('-C',$path,'remote','get-url','origin')) -join ''
             if ($origin -ine $reference.Url) { throw 'Existing origin differs from the recorded reference; preserving checkout.' }
             $result.Before=(Invoke-ReferenceGit @('-C',$path,'rev-parse','HEAD')) -join ''
+            $remoteState=Get-ReferenceRemoteState -Target $reference.Url -Branch $reference.Branch
+            if ($remoteState -eq 'missing-repository') {
+                $result.Status='unavailable'; $result.After=$result.Before
+                $result.Detail='The remote repository no longer exists; the local checkout is preserved as the only copy.'
+                $results.Add([pscustomobject]$result); Write-Host "$($result.Name): unavailable (preserved) $($result.After)"; continue
+            }
+            if ($remoteState -ne 'ok') { throw "Remote branch '$($reference.Branch)' is not available ($remoteState); update data\reference-repos.json." }
             $dirty=@(Invoke-ReferenceGit @('-C',$path,'status','--porcelain'))
             $branch=(Invoke-ReferenceGit @('-C',$path,'branch','--show-current')) -join ''
-            $null=Invoke-ReferenceGit @('-C',$path,'fetch','--quiet','--prune','--no-tags','origin')
+            # Explicit refspec: single-branch clones only track their original branch.
+            $null=Invoke-ReferenceGit @('-C',$path,'fetch','--quiet','--prune','--no-tags','origin',('+refs/heads/{0}:refs/remotes/origin/{0}' -f $reference.Branch))
             if ($dirty.Count -or $branch -ne $reference.Branch) {
                 $result.Status='preserved'; $result.Detail='Dirty/different/detached checkout; fetched remote refs without changing files.'
             } else {

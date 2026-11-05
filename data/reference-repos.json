@@ -42,7 +42,7 @@
   {
     "Name": "ntdevlabs_tiny11builder_upstream",
     "Url": "https://github.com/ntdevlabs/tiny11builder.git",
-    "Branch": "main"
+    "Branch": "winui-preview"
   },
   {
     "Name": "prismatecas-ui_tiny11builder",

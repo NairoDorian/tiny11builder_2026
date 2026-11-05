@@ -1,5 +1,126 @@
 # Changelog
 
+## Unreleased - getting and recognizing the ISO, offline readiness, GUI help (2026-11-05)
+
+- **Assisted near one-click download** (GUI *Get Windows 11...*, `tiny11iso.ps1 -Get`):
+  - the app opens Microsoft's page in the browser; the person chooses the language and clicks *Download*;
+  - the app then picks up the finished ISO from the real Downloads folder (or a Microsoft link copied after the click, which it downloads itself), and selects, loads and verifies it automatically;
+  - it shows the browser's progress while waiting and stops after 45 minutes.
+  - Detection is tested (11 new checks).
+
+- **Official ISO recognition (informational, never blocking).** New `lib/tiny11download.psm1` and `tiny11iso.ps1 -Verify`:
+  - the ISO's SHA-256 is compared with the per-language table on Microsoft's static Windows 11 download pages (x64 and ARM64, 38 languages, current release);
+  - results are *Verified*, *NotListed* (older/Insider releases are not listed) or *Unavailable* (offline);
+  - the GUI checks automatically after *Load editions* and stops when a build starts.
+  - Live check: the local `Windows11_Client_x64_en-us_26300_9457.iso` matched Microsoft's **26H2 English 64-bit** entry; hashing took 11.6 s.
+- **Download from a Microsoft link** (`tiny11iso.ps1 -Url`, GUI *Download from link...*):
+  - Microsoft hosts only, checked on every redirect;
+  - strong-ETag resume of `.part` files (also with a fresh link);
+  - bounded retries, free-space check, optional expected SHA-256, never overwrites.
+  - *Get Windows 11...* (formerly *Open download page*) opens Microsoft's page in the browser.
+- **Easier ISO selection:** ISOs in Downloads/Desktop listed, drag-and-drop anywhere on the window, Browse starts in the current ISO's folder.
+- **Offline readiness:**
+  - Build-tab Checks state whether oscdimg/wimlib are on the PC; *Prepare offline tools* / `tiny11iso.ps1 -PrepareTools` fetches them.
+  - A missing oscdimg offline now gives an actionable message.
+  - Documented that nothing else needs the internet during a build.
+- **GUI help:** mouse-over help for every interactive control (81 entries, wrapped and shown for 20 s), enforced by a test. README *Getting the ISO*, *Working offline* and tab descriptions updated.
+- **Fixes found in the code pass:**
+  - closing the window during a build force-killed DISM; it now cancels safely and closes afterwards;
+  - cancellation now fires once, so emergency cleanup cannot be interrupted;
+  - an output ISO that is mounted/open is refused at the start, and a lock appearing at publish time keeps the verified ISO under a dated name instead of deleting it;
+  - the GUI tooltip table pairs were flattened by PowerShell (caught by tests before release);
+  - Core's help documented 25 parameters only by reference: all parameters are now documented, and a test enforces `.PARAMETER` help and README coverage for every builder parameter and the GUI-to-builder argument contract;
+  - README statements about Cancel, Defender, Core WinSxS and group counts are corrected.
+- **Validation:** 46 offline ISO-download/hand-off checks in both shells, plus the core/media/export suites (see VERIFICATION.md). No fresh full ISO build or VM installation of this revision.
+
+## Unreleased - upstream WinUI 0.2 behaviors reimplemented in PowerShell (2026-11-04)
+
+ntdevlabs/tiny11builder became a C#/WinUI 3 app (`winui-preview`, v0.2.0, no license file).
+None of its code is copied; the behaviors below were reimplemented and are credited to it.
+See [docs/UPSTREAM_MERGE_PLAN.md](docs/UPSTREAM_MERGE_PLAN.md) for the full plan and status.
+
+- **Safety and correctness:**
+  - Image files are deleted through backup-semantics handles (`lib/NativeImage.cs`) instead of `takeown`/`icacls`, so ACLs and read-only attributes shared by WinSxS hard links are never rewritten. Paths over 260 characters work, and links are deleted without being followed.
+  - Core trims WinSxS in place, after a guard that the native runtime families and store metadata exist. The old sequence (`takeown /R` + `icacls /T` + copy + `cmd rmdir`) rewrote the ownership of System32 files through their hard links.
+  - Hives load through `RegLoadKeyW` first (real Win32 codes), with `reg.exe` as fallback.
+  - An access-denied registry write now tries a backup/restore handle with readback before the Offreg fallback. Deletes do the same.
+  - DISM always gets `/English`, a session log and a work-drive scratch folder.
+  - The builder enables servicing privileges on its own token, which DISM children inherit (upstream #660).
+  - The servicing-tool gate rejects too-old DISM early (26200/26300 map to the 26100 family). NTFS is now verified on the default drive too, and output/work-folder locations are checked.
+  - ISOs are mastered to a partial file, checked for an ISO9660/UDF descriptor, and only then replace the output.
+  - GUI Cancel is a safe cancel at stage boundaries; force stop needs a second, explicit confirmation.
+- **Servicing:**
+  - Component cleanup runs before .NET 3.5 in both builders, which closes the ResetBase/NetFx3 divergence.
+  - `0x800F0806` (pending operations) is a reported skip. Core refuses to trim WinSxS while servicing is pending.
+  - Capability removals are re-read (`UninstallPending` = deferred).
+  - Legacy optional features (XPS printing, Work Folders, IE optional, Recall) are removed with verification.
+  - Edge/WebView2 uninstall entries are deleted only when their files are gone and the entry is Microsoft's. Edge removal now also covers `Program Files\Microsoft`.
+  - New `EdgePromotions` group (4 documented Edge policies).
+- **New options (CLI + WinForms Extras tab):**
+  - `-UpdatePackage`: ordered, privately staged, hash-checked CAB/MSU integration. The expected version is re-based within the same servicing family.
+  - `-OmitNetFx3Payload`, `-ShrinkBootImage` (Setup-only bootable boot.wim), `-RemoveRedundantData` (pending-aware allow-list) and Standard `-KeepUpdateUninstall`.
+- **Presets:** Default now disables Defender and enables Ultimate Performance and fast shutdown (user decision). The built-in table matches the JSON files, and a test enforces that value by value. The GUI refuses to overwrite built-in preset files.
+- **References:** the catalog moves ntdevlabs to `winui-preview`. The sync script uses an explicit refspec and reports deleted repositories (namnguyen97x, icis-org) as preserved. Added `NOTICE.md`.
+- **Validation:** PowerShell 7: 2,077 core checks passed; Windows PowerShell 5.1: 2,075 passed. 129 real export and 23 media/progress checks passed; generated freshness, parser and lint passed. **No fresh full ISO build or VM installation of this revision.**
+
+## Unreleased - comment and documentation accuracy pass (2026-10-05)
+
+- Correct comments that stated the opposite of the code: the GUI module header
+  claimed the window never reads ISO metadata through a file stream (it does, via
+  lib\tiny11media.psm1); `lib/AdjPriv.cs` claimed to be what Enable-Privilege
+  loads (that function compiles an inline copy); Core's section banner claimed
+  Edge's WinSxS payload is removed by Remove-EdgeFiles (it is removed indirectly
+  by the WinSxS allowlist rebuild); `Get-PresetFlagNames` claimed to report
+  unknown preset keys (the test does that); the preset test comment promised a
+  value comparison against the Default table that no assertion performs.
+- Document load-bearing behavior that had no comment: the legacy `recovery`/`max`
+  compression aliases and what they actually mean; the label-to-stage mapping in
+  Invoke-DismChecked; hive ownership tracking in Invoke-RegLoad; the wimlib
+  compression-flag table and its fixed index 1; the 0x10d00/0x40000 WIM header
+  constants; why the edition export compresses differently on its DISM fallback;
+  the 1.5x/20GB scratch rule and that NTFS is unverified on the default scratch
+  drive; robocopy's "< 8 is success" convention; the MAX_PARALLEL_JOBS clamp;
+  build 26100+ SecHealthUI protection; the MAX_PARALLEL/WinSxS/keepPattern
+  dependencies; Standard's -NoResetBase/EnableNetFx3 rule and Core's divergence
+  from it; the GUI stage-range table's unreachable payload entry and 99% cap; the
+  ETA sampling gates; oscdimg flags and the 32-character label limit.
+- Correct stale help text: `update-generated.ps1` now lists all five generated
+  files (it documented two, including that the module manifests are generated);
+  `tiny11maker.ps1` no longer claims PowerShell 5.1 only; Core's `.NOTES` now
+  lists the three compression parameters it actually accepts; Core's `.PARAMETER
+  Preset` and `.DESCRIPTION` state the full forced-flag set.
+- Add a "Reading the source" section to the documentation index mapping each
+  source file to the contract its comments carry, plus the three easy-to-miss
+  facts (Offreg means offreg.dll not offreg.exe; z* aliases are shared; APPS/TWEAKS
+  are CI-generated).
+- Record in WORKING_NOTES/PROJECT_GUIDE the scratch-space rule, the NTFS
+  verification gap, the drive-vs-ISO edition-reading difference, the stage-range
+  coupling, the compression aliases, and Core's missing -NoResetBase guard as an
+  open item rather than a settled behavior.
+- Comments and documentation only. No patch feature, preset value, generated
+  catalog, answer XML, module manifest or visible GUI control changed.
+- Fix README accuracy found in a second audit: document the real oscdimg
+  resolution order (ADK, script-local, PATH, then warm cache, download last) rather
+  than "otherwise it is downloaded"; add the missing `-Help` option row; state
+  that the legacy `recovery`/`max` aliases do not match their names; and flag
+  that `presets\*.json` is the authority for preset behavior, so the preset table
+  and "Default keeps Defender" must be read against the current files.
+- Correct my own count: `update-generated.ps1` owns **six** generated files, not
+  five (two answer XML files plus two module manifests), matching CONTRIBUTING.md.
+- Add comments for two more undocumented decisions: why `Invoke-Native` has two
+  execution paths (concurrent pipe draining vs. direct call, and the different
+  argument-quoting rules that follow), and that `Invoke-SafeOfflineRegistryUnload`
+  bypasses the deferred-DWORD retry because it is the never-throw emergency path.
+- Document duplicated state that can silently drift: the offline hive name list
+  exists in both `Dismount-OfflineHives` and `$Script:OfflineHiveNames`, and
+  `Get-AvailableImageIndex` is legacy DISM-text scraping kept for compatibility
+  while the builders use structured WIM reads.
+- Verified: parse-check, linter, test-core-helpers (1918 passed with the tracked
+  presets\default.json), test-media-progress (23) and test-export-pipeline (129).
+  The 3 preset/catalog failures and stale `docs/TWEAKS.md` seen with the
+  uncommitted GUI-save overwrite of presets\default.json are unchanged by this
+  pass; see WORKING_NOTES item 9. No full build or VM installation was performed.
+
 ## Unreleased - complete Markdown handoff and state reconciliation (2026-10-05)
 
 - Replace append-only working notes with current permissions, implementation,

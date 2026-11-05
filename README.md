@@ -18,7 +18,9 @@ With the built-in Default preset, it requests these changes to the resulting ins
 - install without a Microsoft account or a network connection;
 - skip the TPM / Secure Boot / CPU / RAM checks.
 
-Default retains the Update, Defender and Store components; effective policy/runtime behavior depends on Windows edition/version and target testing.
+Default retains Windows Update and the Store but **turns Defender off** and enables the Ultimate Performance plan and fast shutdown (changed 2026-11-04). Gaming and PrivacyPlus keep Defender on. Effective policy/runtime behavior depends on Windows edition/version and target testing.
+
+`presets\*.json` is the authority for what each preset does — the descriptions above and in [docs/APPS.md](docs/APPS.md)/[docs/TWEAKS.md](docs/TWEAKS.md) are generated from or checked against those files, and the GUI can overwrite them by saving a preset. If a preset file has been edited, regenerate the catalogs with `scripts\update-generated.ps1`; `docs/APPS.md` and `docs/TWEAKS.md` will not match what a build actually does until you do.
 
 This project is a fork of [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder).
 Its full history is kept on `main`, and the 2026 edition follows as regular commits on top.
@@ -46,6 +48,7 @@ The latest app checks passed in PowerShell 5.1 and 7 ([CI](https://github.com/Na
 - [Current state and documentation](#current-state-and-documentation)
 - [Highlights](#highlights)
 - [Quick start](#quick-start)
+- [Getting the ISO and checking it](#getting-the-iso-and-checking-it)
 - [The GUI](#the-gui)
 - [Standard or Core](#standard-or-core)
 - [Presets](#presets)
@@ -64,20 +67,21 @@ The latest app checks passed in PowerShell 5.1 and 7 ([CI](https://github.com/Na
 
 | | |
 |---|---|
-| **Build options in one window** | A 7-tab GUI with a live log, step/overall progress and ETA. The build runs in a hidden child; Cancel attempts cleanup. |
+| **Build options in one window** | A 7-tab GUI with a live log, step/overall progress and ETA, and mouse-over help on every control. The build runs in a hidden child; **Cancel** stops safely at the next stage boundary (a running DISM step is never killed). |
+| **Genuine Windows, online or offline** | Pick a local ISO (the default, works offline), drop it on the window, or download Microsoft's ISO from a link with resume. Every ISO can be recognized against Microsoft's published SHA-256 list; that check is informational and never blocks a build. |
 | **Current Windows** | Readers/planners cover newer Windows release labels, x64/ARM64, WIM/ESD and language metadata. Full-build evidence is 26300.9457 Pro x64/en-US; other combinations need validation. |
 | **AI and ads off** | Policies for Copilot, Recall, Click to Do, the Settings agent, generative AI in Paint, Notepad and Edge, Widgets, Bing search, Start recommendations and "finish setting up" nags. |
 | **No surprise reinstalls** | Removed apps are *deprovisioned*, and the Outlook, Dev Home, Teams and Edge re-installers are blocked. |
 | **Your first boot, your way** | A local admin account (or create one in OOBE), locale, time zone, computer name, a zero-touch install for VMs, a browser installed at first sign-in, and your own scripts. |
 | **Transparent** | Every registry value is listed in [docs/TWEAKS.md](docs/TWEAKS.md), every app in [docs/APPS.md](docs/APPS.md). Each ISO gets a `.json` manifest and a `.sha256` file. |
 | **Safe by construction** | Options are validated early. Offline registry guards protect live paths; failures stop and attempt cleanup, retaining files when dismount/state is unsafe. The downloaded `oscdimg.exe` is checksum-pinned. |
-| **Tested** | About 1,900 core checks plus real media/export fixtures; PowerShell 5.1 and 7 CI. See the dated verification matrix for exact counts and limits. |
+| **Tested** | About 2,100 core checks plus real media/export fixtures and offline ISO-download fixtures; PowerShell 5.1 and 7 CI. See the dated verification matrix for exact counts and limits. |
 
 ---
 
 ## Quick start
 
-1. Download a Windows 11 ISO from [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
+1. Download a Windows 11 ISO from [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11), or use an ISO you already have (see [Getting the ISO and checking it](#getting-the-iso-and-checking-it); the GUI can also open that page and download from its link).
 2. Double-click **`LAUNCH_TINY11.bat`** and press **1** (graphical builder). It asks for administrator rights.
 3. In **Source**, browse to the ISO and choose an edition, for example *Windows 11 Pro*. Its editions load automatically without mounting. For a typed path or existing drive, click **Load editions**.
 4. Optionally adjust the other tabs, then click **Build ISO**. Time depends on source/options/storage/CPU; the measured maximum run took 21 minutes. See the performance report.
@@ -102,8 +106,46 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
   the Windows PowerShell compatibility session automatically; nothing to configure.
 - About **25 GB free** on an **NTFS** drive: 1.5 × the image size, at least 20 GB. The GUI
   shows the free space and warns before you start.
-- `oscdimg.exe` is taken from the Windows ADK if installed. Otherwise it is downloaded before image work and retained in
-  `tools\oscdimg\2.56`, from Microsoft's symbol server and verified against a pinned SHA-256.
+- `oscdimg.exe` is resolved in this order: the Windows ADK if installed, a copy shipped next to
+  the scripts, one on `PATH`, then the cached portable copy in `tools\oscdimg\2.56`. Only if
+  none of those is usable is it downloaded before image work, from Microsoft's symbol server
+  and verified against a pinned SHA-256. The cached copy is reused when its hash matches.
+
+## Getting the ISO and checking it
+
+**A local ISO is the default and always works, online or offline.** In the GUI, Source tab:
+
+| Way | What happens |
+|---|---|
+| **Browse...** or the list | The list already offers Windows ISOs found in your *Downloads* and *Desktop* folders (newest first). Browse opens in the current ISO's folder. |
+| **Drag and drop** | Drop an `.iso` from Explorer anywhere on the window. |
+| **Get Windows 11...** (assisted, near one-click) | Opens Microsoft's official Windows 11 page (x64 or ARM64, like this PC) in your browser. There you pick the multi-edition ISO and your language and click *Download*. **That is all:** this window watches your Downloads folder, shows the browser's progress, and when the ISO is finished it selects it, loads its editions and checks it against Microsoft's hashes. If you *Copy link* instead of downloading, the copied Microsoft link is picked up and downloaded here (resumable). Only links copied after the click count; other clipboard content is ignored. Waiting stops after 45 minutes or when you click again. |
+| **Download from link...** | Right-click Microsoft's *64-bit Download* button, *Copy link*, paste it here. The download runs in the background: progress and speed, automatic resume after a dropped connection (a fresh link to the same ISO also resumes the kept `.part` file), Microsoft hosts only on every redirect, free-space check, never overwrites. When it finishes, the ISO is selected, its editions load and it is recognized. |
+| **Check authenticity** | Computes the ISO's SHA-256 (about 10-60 s) and compares it with the *Verify your download* table Microsoft publishes on its download pages for the **current** release, all 38 languages, x64 and ARM64. It runs automatically after *Load editions* for an `.iso` file. |
+
+Authenticity results are **information only**. *Official Microsoft ISO* means an exact match. *Not in Microsoft's current list* usually means an older or Insider release (Microsoft lists only the current one), not a fake. *Could not be reached* means offline. None of them blocks or slows a build: the check stops by itself when a build starts.
+
+The same from the command line, with `tiny11iso.ps1`:
+
+```powershell
+.\tiny11iso.ps1 -Verify D:\ISO\Win11_26H2_English_x64.iso   # recognize a local ISO
+.\tiny11iso.ps1 -ListHashes -Architecture arm64              # Microsoft's current hash table
+.\tiny11iso.ps1 -Get [-TimeoutMinutes 45]                    # assisted: page in the browser, then auto pickup + check
+.\tiny11iso.ps1 -OpenPage                                    # official page in the browser only
+.\tiny11iso.ps1 -Url '<link copied from that page>' -Destination D:\ISO [-Sha256 <hash>]
+.\tiny11iso.ps1 -PrepareTools                                # fetch oscdimg + wimlib now, for offline builds
+```
+
+### Working offline
+
+The builders need the internet for **nothing** once two pinned tools are on the PC:
+
+| Tool | Needed for | Offline behavior |
+|---|---|---|
+| `oscdimg.exe` | writing the ISO (mandatory) | Used from the Windows ADK, a copy next to the scripts, `PATH`, or `tools\oscdimg`. If none exists, the build downloads it once at the very start (before any image work) and keeps it. |
+| wimlib | maximum compression, metadata repair, the no-mount Setup patch | Kept in `tools\wimlib` after first use. Without it (offline), Auto compression uses DISM instead and Setup is patched with a normal mount. Only a build whose final image needs a metadata repair (current Microsoft ISOs do not) stops and asks for it. |
+
+The Build tab's **Checks** tell you whether this PC is *offline-ready*; **Prepare offline tools** (or `tiny11iso.ps1 -PrepareTools`) fetches both while you are online. The only other downloads are the optional Firefox/Chrome installers, and those run on the **new** PC at its first sign-in, not during the build.
 
 ---
 
@@ -118,13 +160,15 @@ The ISO is written next to the scripts as `tiny11.iso` (`tiny11core.iso` for Cor
 
 | Tab | What you set |
 |---|---|
-| **1 Source** | ISO file or drive; edition list with build, architecture, language and size; Standard or Core builder; output ISO; work drive (with free space); compression; quick test build; boot without "Press any key"; dry run |
+| **1 Source** | ISO file or drive (ISOs in Downloads/Desktop are listed; drag and drop works); **Get Windows 11...** (assisted download with automatic pickup), **Download from link...** (resumable, SHA-256-recognized) and **Check authenticity** (informational, see [above](#getting-the-iso-and-checking-it)); edition list with build, architecture, language and size; Standard or Core builder; output ISO; work drive (with free space); compression; quick test build; boot without "Press any key"; dry run |
 | **2 Preset & features** | Preset, plus each of its 22 flags as a checkbox (hover for details). Changed flags become a custom preset automatically. Load and save preset files. |
 | **3 Apps** | The full removal list by category (uncheck to keep an app), your own package prefixes, import/export of lists, the optional apps to keep, and "keep everything". |
-| **4 Tweaks** | All 28 registry tweak groups and what enables each. Uncheck to skip a group; check a greyed one to turn on its flag. Every value of the selected group is shown. |
+| **4 Tweaks** | All 29 registry tweak groups and what enables each. Uncheck to skip a group; check a greyed one to turn on its flag. Every value of the selected group is shown. |
 | **5 Setup & account** | Local admin and password, or create the account in OOBE. Language/keyboard, time zone, computer name, zero-touch install, custom answer file. **Preview or save the generated `autounattend.xml`.** |
-| **6 Extras** | .NET 3.5, a driver folder (the `.inf` files are counted), a browser, payload scripts, the low-RAM profile, no driver updates, and the Defender exclusion on the build PC. |
-| **7 Build** | Plan, checks and the equivalent command line. During the build: overall and current-step progress, elapsed time, rough total ETA and measured step ETA when enough progress is available, a colour-coded log, **Cancel**, logs and output buttons. Steps without a measurable percentage show an animated bar. |
+| **6 Extras** | .NET 3.5, a driver folder (the `.inf` files are counted), a browser, payload scripts; **Windows updates** (ordered `.msu`/`.cab` list with Add / Remove / Up / Down); **smaller media and servicing**: omit the .NET 3.5 setup files, smaller boot.wim, remove caches/logs/dumps, keep updates uninstallable; the low-RAM profile, no driver updates, and the Defender exclusion on the build PC. |
+| **7 Build** | Plan, checks (including whether the PC is *offline-ready*) and the equivalent command line. During the build: overall and current-step progress, elapsed time, rough total ETA and measured step ETA when enough progress is available, a colour-coded log, logs and output buttons, and **Prepare offline tools**. **Cancel build** stops safely at the next stage boundary (the current DISM step finishes, then the mounted image is discarded); a second click offers *Force stop* for a hung build. Closing the window during a build cancels safely and closes when it has stopped. |
+
+Every control has **mouse-over help** (hover for about half a second); the texts describe exactly what the option changes and its trade-offs.
 
 | | |
 |---|---|
@@ -144,9 +188,9 @@ temporary file that is deleted immediately, so a password never appears on a com
 |---|---|---|
 | For | PCs, laptops, long-lived VMs | disposable VMs, test rigs, CI |
 | Windows Update, language packs, features | keep working | **impossible** after the build |
-| Defender | retained by Default; configurable offline policies | removed/disabled by Core choices |
+| Defender | **disabled by Default** (kept by Gaming/PrivacyPlus); configurable offline policies | removed/disabled by Core choices |
 | WinRE / "Reset this PC" | kept | removed |
-| WinSxS | cleaned (`/StartComponentCleanup /ResetBase`) | rebuilt with only the servicing stack |
+| WinSxS | cleaned (`/StartComponentCleanup /ResetBase`, or without ResetBase with `-KeepUpdateUninstall`) | trimmed in place to the servicing stack, common controls, GDI+ and VC runtimes (refused while servicing is pending) |
 | Edge WebView2 | kept (removed only with Minimal-VM) | removed |
 | Default preset | Default | Minimal-VM |
 
@@ -159,11 +203,13 @@ A preset is a set of on/off flags ([`presets/*.json`](presets)). The
 each preset applies, and [docs/APPS.md](docs/APPS.md#preset-dependent) shows which apps depend
 on the preset.
 
+This table describes the presets as committed. Because the last column is relative to Default, editing `presets\default.json` changes what Gaming and PrivacyPlus "add"; check the generated [tweak matrix](docs/TWEAKS.md#which-groups-each-preset-applies) for the current values rather than trusting the wording below.
+
 | Preset | For | Compared with Default |
 |---|---|---|
-| **Default** | everyone | Removes bloat apps, Edge, OneDrive and AI features; telemetry off. Keeps the Store, Defender, WebView2 and Mark-of-the-Web. |
-| **Gaming** | gaming PCs | Keeps the Xbox app, Game Bar and Xbox sign-in. Adds the Ultimate Performance power plan, raw mouse input, fast shutdown and firewall rules that block telemetry. |
-| **PrivacyPlus** | privacy first | Adds firewall rules that block telemetry and fast shutdown. Defender stays on but sends no cloud reports or samples. |
+| **Default** | everyone | Removes bloat apps, Edge, OneDrive, AI features and **Defender** (no antivirus); telemetry off; Ultimate Performance power plan and fast shutdown. Keeps the Store, WebView2 and Mark-of-the-Web. |
+| **Gaming** | gaming PCs | Keeps the Xbox app, Game Bar and Xbox sign-in **and Defender**. Adds raw mouse input and firewall rules that block telemetry. |
+| **PrivacyPlus** | privacy first | Keeps **Defender** on but sends no cloud reports or samples. Adds firewall rules that block telemetry; no Ultimate Performance plan. |
 | **Minimal-VM** | lab VMs | Also removes the Store, WebView2 and Defender (**no antivirus**), and turns off Mark-of-the-Web. |
 
 To make your own preset, change the checkboxes in the GUI and click **Save as preset**, or
@@ -174,7 +220,7 @@ Default.
 
 ## Command line
 
-Both builders share the main options. `-LowRam`, `-DisableDriverUpdates` and
+Both builders share the main options. `-LowRam`, `-DisableDriverUpdates`, `-KeepUpdateUninstall` and
 `-Custom` are Standard-only CLI parameters; Core does not accept them. Core asks about .NET 3.5 when run interactively. Run `Get-Help .\tiny11maker.ps1 -Full`
 for the built-in help.
 
@@ -208,10 +254,18 @@ for the built-in help.
 | `-CompressionLevel <1-200>` | wimlib compression effort; 100 (high) by default |
 | `-CompressionThreads <n>` | Zero (default) chooses threads based on CPU and memory; no host priority settings are changed |
 | `-Fast` | Fast compression and no component cleanup (quick test builds) |
+| `-KeepUpdateUninstall` | Standard only: component cleanup without `/ResetBase`, so installed updates stay uninstallable (larger image) |
+| `-UpdatePackage <file,...>` | Local `.msu`/`.cab` updates integrated offline **in the given order** before any removal; each is copied privately and SHA-256-checked; nothing is downloaded |
+| `-OmitNetFx3Payload` | Leave `sources\sxs` (~70 MB) out of the ISO; `-EnableNetFx3` still works during the build |
+| `-ShrinkBootImage` | Rebuild `boot.wim` with only its patched Windows Setup image (bootable, maximum LZX) |
+| `-RemoveRedundantData` | Delete offline update downloads, temp files, archived CBS/DISM logs, crash dumps and error-report queues (update/temp folders are kept while servicing is pending) |
 | `-NoPrompt` | The ISO boots straight into Setup without "Press any key" (implied by `-ZeroTouch`) |
+| `-Help` | Print the script's own full help and exit; same as `Get-Help .\tiny11maker.ps1 -Full` |
 
 `maximum` means solid LZMS compression; `balanced` means LZX. The old `recovery`
-and `max` spellings remain accepted for existing commands and saved profiles.
+and `max` spellings remain accepted for existing commands and saved profiles, but
+neither matches its name: `recovery` means **maximum**, and `max` means
+**balanced**. Maximum is reachable only as `-Compress maximum`, never as `max`.
 DISM's API still requires those historical names internally. Maximum compression
 is applied once, at the end. The initial edition export reuses ordinary WIM
 compressed resources where possible; solid ESD sources are converted to a
@@ -315,7 +369,12 @@ answer files and the module manifests.
 | Symptom | Fix |
 |---|---|
 | Hive unload / commit failure | Stop the owned writer and close handles into the offline work folder. Verify owned mounts/hives before retrying; preserve image files if dismount/state is unsafe. See the bug report. |
-| "Filename or extension is too long" during hive load | A 33-character path still failed in controlled tests; CIM launching succeeded, but the Windows cause is unresolved. The early hive preflight detects it. See the launch-context investigation; do not change host security settings. |
+| "Filename or extension is too long" during hive load | A 33-character path still failed in controlled tests; CIM launching succeeded, but the Windows cause is unresolved. The early hive preflight detects it. Hives now load through `RegLoadKeyW` first, which reports the real Win32 error code in the log (with `reg.exe` as fallback). See the launch-context investigation; do not change host security settings. |
+| "-OutputIso ... is in use" at the start | The old ISO is mounted in Explorer or open elsewhere: eject/close it or choose another name. (If it becomes locked during the build, the verified new ISO is saved next to it with a date suffix instead of being lost.) |
+| "oscdimg.exe ... could not be downloaded" | The PC is offline and has no ISO writer yet. Connect once (or use **Prepare offline tools** / `tiny11iso.ps1 -PrepareTools` while online), install the ADK Deployment Tools, or place `oscdimg.exe` next to `tiny11maker.ps1`. |
+| "needs DISM servicing base ..." | This host's DISM is older than the image (e.g. Windows 10's 19041 tools for a 26H2 image). Install the current Windows ADK Deployment Tools; 25H2/26H2 hosts (26100 family) are fine. |
+| Authenticity says "not in the current list" | Microsoft lists only the current public release; older and Insider ISOs are not listed. Informational only: the build is unaffected. |
+| Download from link stops with HTTP 403/410 | The link expired (about 24 hours). Copy a fresh link from Microsoft's page; the kept `.part` file resumes. |
 | Slow build / apparently stalled percentage | Consult stage logs and PERFORMANCE.md. Maximum LZMS dominated the measured run; overall percentage/ETA is approximate. Do not overlap DISM writers or change this session's host settings. |
 | "Load editions" fails | The ISO must contain `sources\install.wim` or `install.esd`. Editions are read through the bundled UDF/ISO9660 reader, without elevation, mounting, downloads or cached guesses. Malformed, encrypted or split images need suitable source media. |
 | Setup rejects product-key/edition validation | Verify the chosen edition, source-derived final XML and any custom answer file. A successful build alone cannot rule out the upstream metadata failure. Firmware keys/activation depend on the target and matching edition. |
@@ -334,6 +393,7 @@ tiny11gui.ps1             Graphical builder (every option, live build log)
 tiny11maker.ps1           Standard (serviceable) builder
 tiny11Coremaker.ps1       Core (minimal, non-serviceable) builder
 tiny11LegacyProfile.ps1   Compatibility shim for the old low-RAM profile
+tiny11iso.ps1             Recognize / download official ISOs, prepare tools for offline builds
 removePackage.txt         Apps removed by default
 autounattend*.xml         Reference answer files (generated)
 data/tweaks.psd1          Registry tweak catalog, the single source of truth
@@ -342,7 +402,10 @@ lib/tiny11utils.psm1      Build library: DISM/registry helpers, catalog engine, 
                           generator, removal planning, shared build stages, ISO creation
 lib/tiny11gui.psm1        Windows Forms window, state -> builder arguments, build runner
 lib/tiny11media.psm1      Read-only bundled optical/WIM metadata reader
+lib/tiny11download.psm1   Microsoft hash list, ISO recognition, resumable link download (optional)
 lib/OfflineRegistry.cs   File-only protected image-hive DWORD repair
+lib/NativeImage.cs        Native hive load, backup/restore registry writes, ACL-preserving deletion
+NOTICE.md                 Attribution and licensing notes
 data/reference-repos.json Exact reference URLs and branches
 payload/                  Your post-install scripts (-Payload)
 Browsers/                 Browser installers run at the first sign-in (-Browser)
@@ -360,6 +423,7 @@ repos/                    Reference forks (git-ignored, for study only)
 .\scripts\parse-check.ps1         # every file parses, every command resolves
 .\scripts\test-core-helpers.ps1   # ~1,900 checks, no admin rights and no ISO needed
 .\scripts\test-media-progress.ps1 # real ISO metadata/progress fixtures
+.\scripts\test-iso-download.ps1   # ISO recognition + resumable download (offline fake server)
 .\scripts\test-export-pipeline.ps1 # real small WIM/ESD fixtures
 .\scripts\update-generated.ps1    # docs, reference answer files, manifests (-Check fails if stale)
 .\scripts\linter.ps1              # PSScriptAnalyzer, high-signal rules

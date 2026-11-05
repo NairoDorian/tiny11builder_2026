@@ -76,6 +76,7 @@
 
 .PARAMETER Compress
     maximum (install.esd, smallest, default) | balanced | fast | none.
+    Legacy aliases: recovery means maximum, max means balanced LZX.
 
 .PARAMETER CompressionEngine
     Auto prefers the portable, SHA-256-pinned wimlib compressor and falls back
@@ -87,6 +88,25 @@
 
 .PARAMETER Fast
     fast compression and no component cleanup (quick test builds).
+
+.PARAMETER KeepUpdateUninstall
+    Component cleanup without /ResetBase: installed updates stay uninstallable.
+    The image is somewhat larger. Ignored with -Fast (no cleanup at all).
+
+.PARAMETER UpdatePackage
+    Local .msu / .cab Windows update packages to integrate offline, in the given
+    prerequisite order (checkpoint cumulative updates first). Nothing is downloaded.
+
+.PARAMETER OmitNetFx3Payload
+    Leave sources\sxs (~70 MB) out of the ISO. -EnableNetFx3 still works during
+    the build; adding .NET 3.5 later then needs other matching media or Windows Update.
+
+.PARAMETER ShrinkBootImage
+    Rebuild boot.wim with only its Windows Setup image (bootable, maximum LZX).
+
+.PARAMETER RemoveRedundantData
+    Delete offline update downloads, temp files, archived CBS/DISM logs, crash
+    dumps and error-report queues. Update/temp folders are kept while servicing is pending.
 
 .PARAMETER OutputIso
     Output ISO path (default: tiny11.iso next to this script).
@@ -146,7 +166,8 @@
     .\tiny11maker.ps1 -ISO E -DryRun
 
 .NOTES
-    Tiny11 Builder - Ultimate Edition (2026). Windows PowerShell 5.1, run as Administrator.
+    Tiny11 Builder - Ultimate Edition (2026). Windows PowerShell 5.1 or
+    PowerShell 7, run as Administrator.
     Based on ntdevlabs/tiny11builder and 15 community forks (see README).
 #>
 
@@ -174,6 +195,11 @@ param (
     [ValidateRange(1, 200)][int]$CompressionLevel = 100,
     [ValidateRange(0, 1024)][int]$CompressionThreads = 0,
     [switch]$Fast,
+    [switch]$KeepUpdateUninstall,
+    [string[]]$UpdatePackage = @(),
+    [switch]$OmitNetFx3Payload,
+    [switch]$ShrinkBootImage,
+    [switch]$RemoveRedundantData,
     [string]$OutputIso,
     [switch]$NoPrompt,
     [switch]$ZeroTouch,
@@ -225,6 +251,7 @@ if ($WorkDirectory) {
         throw '-WorkDirectory must be an absolute folder path on a local NTFS drive.'
     }
     $ScratchRoot = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\')
+    Assert-WorkDirectoryLocation -Path $ScratchRoot
     if ($ScratchRoot -eq [IO.Path]::GetPathRoot($ScratchRoot).TrimEnd('\')) {
         throw '-WorkDirectory must be a folder, not a drive root.'
     }
@@ -284,6 +311,9 @@ foreach ($pathCheck in @(
 }
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path -LiteralPath $outputDir)) { throw "-OutputIso: folder '$outputDir' does not exist." }
+Assert-OutputIsoLocation -OutputIso $OutputIso
+$updatePackages = Resolve-UpdatePackageList -Path $UpdatePackage
+$updateBytes = [long](@($updatePackages | ForEach-Object { (Get-Item -LiteralPath $_).Length }) | Measure-Object -Sum).Sum
 if (-not $UnattendFile) {
     # Validates -User / -ComputerName / -Locale now rather than after 30 minutes of work.
     $null = New-UnattendXml -UserName $User -Password $Password -TimeZone $TimeZone -Locale $Locale `
@@ -331,7 +361,7 @@ Test-Prerequisites
 # Prepare the ISO writer before attaching/copying/servicing media (PR #604).
 if (-not $DryRun) { $Script:oscdimgPath = Initialize-Oscdimg }
 if (-not $WorkDirectory) { Clear-StaleBuildState }
-if ($SCRATCH -or $WorkDirectory) { $null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk }
+$null = Test-ScratchDiskNtfs -ScratchPath $ScratchDisk   # default work drive included
 
 #---------[ Source & edition ]---------#
 $Script:source = Resolve-WindowsSource -IsoParameter $ISO
@@ -341,6 +371,7 @@ $sourceImage = if (Test-Path "$DriveLetter\sources\install.wim") { "$DriveLetter
 $sourceImages = @(Get-WindowsImage -ImagePath $sourceImage)
 $imageIndex = Select-ImageIndex -Images $sourceImages -Index $Index -Edition $Edition -NonInteractive:$Yes
 $info = Get-ImageInfo -ImagePath $sourceImage -Index $imageIndex
+Assert-ServicingToolsSupportImage -ImageBuild ([int]$info.Build)
 $sourceMetadata = Get-InstallImageMetadata -ImagePath $sourceImage -Index $imageIndex
 $architecture = $info.Architecture
 $languageCode = $info.Language
@@ -350,8 +381,12 @@ if ($info.Build -and $info.Build -lt 22000) {
 }
 if ($architecture -notin 'amd64', 'arm64') { throw "Unsupported image architecture '$architecture'." }
 
-$requiredBytes = Get-RequiredScratchBytes $info.SizeBytes
+# Update packages are staged privately and expand during servicing (3x, as upstream).
+$requiredBytes = (Get-RequiredScratchBytes $info.SizeBytes) + 3 * $updateBytes
 $space = Test-SufficientScratch $requiredBytes ([long](Get-PSDrive -Name $ScratchDisk.TrimEnd(':')).Free)
+# Dry-run reporting only. A real build uses $Script:oscdimgPath, which
+# Initialize-Oscdimg prepared before the source was attached (PR #604); assigning
+# $oscdimg here does not participate in a real build.
 $oscdimg = Find-Oscdimg
 $tweakPlan = Get-TweakPlan -Flags $flags -Skip $SkipTweak
 $unattendMode = if ($UnattendFile) { "custom file $UnattendFile" }
@@ -373,6 +408,8 @@ if ($DryRun) {
     Write-Host "  Answer file      : $unattendMode"
     Write-Host "  Browser / payload: $Browser / $(if ($Payload) { 'payload\packages' } else { 'none' })"
     Write-Host "  .NET 3.5 / drivers: $([bool]$EnableNetFx3) / $(if ($DriverPath) { $DriverPath } else { 'none' })"
+    Write-Host "  Windows updates  : $(if ($updatePackages.Count) { "$($updatePackages.Count) package(s), in order: $(($updatePackages | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')" } else { 'none' })"
+    Write-Host "  Media options    : omit .NET 3.5 payload=$([bool]$OmitNetFx3Payload), smaller boot.wim=$([bool]$ShrinkBootImage), remove redundant data=$([bool]$RemoveRedundantData), keep update uninstall=$([bool]$KeepUpdateUninstall)"
     Write-Host "  Compression      : $($buildProfile.Compress) -> sources\$($buildProfile.ImageFileName); cleanup: $(-not $buildProfile.SkipCleanup)"
     Write-Host ("  Scratch space    : {0} GB free on {1}, ~{2} GB needed  [{3}]" -f $space.FreeGB, $ScratchDisk, $space.RequiredGB, $(if ($space.Ok) { 'OK' } else { 'INSUFFICIENT' }))
     Write-Host "  oscdimg          : $($oscdimg.Source) $(if ($oscdimg.Source -eq 'download') { '(will be downloaded, SHA-256 pinned)' } else { $oscdimg.Path })"
@@ -400,12 +437,14 @@ if ($Custom) {
     }
 }
 
+Set-DismSessionOptions -LogPath (Join-Path $logDir "dism_$(Get-Date -f yyyyMMdd_HHmmss).log") -ScratchDirectory (Join-Path $ScratchRoot 'scratchdir_dism')
 Test-OfflineHiveLoading -ScratchRoot $ScratchRoot
 
 #---------[ Copy media & export the chosen edition ]---------#
 Write-Host "Copying installation media (without the install image)..."
 if (Test-Path $workRoot) { Remove-Item -Path $workRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path "$workRoot\sources" | Out-Null
+Assert-BuildNotCancelled
 Invoke-Robocopy -Source "$DriveLetter\" -Destination $workRoot -ExcludeFile @('install.wim', 'install.esd')
 
 Write-Host "Exporting edition $imageIndex from $(Split-Path $sourceImage -Leaf) (this also handles ESD media)..."
@@ -421,13 +460,21 @@ $null = Initialize-ScratchWorkspace -ScratchRoot $ScratchRoot
 Invoke-DismChecked -Label 'Image mount' '/Mount-Image' "/ImageFile:$wimFilePath" '/Index:1' "/MountDir:$mountDir"
 Assert-MountedImage -MountPath $mountDir
 
+#---------[ Windows updates (before any removal) ]---------#
+$updateResults = @()
+if ($updatePackages.Count) {
+    Assert-BuildNotCancelled
+    $updateResults = Install-OfflineUpdatePackages -MountPath $mountDir -Packages $updatePackages -StagingRoot (Join-Path $ScratchRoot 'scratchdir_updates')
+}
+
 #---------[ Apps, Edge, OneDrive, capabilities ]---------#
 $apps = Invoke-AppRemovalStage -MountPath $mountDir -Flags $flags -Utilities $utilities -PackageListPath $packageListPath -ImageBuild $info.Build -Custom:$Custom -KeepApps:$KeepApps
 $Script:buildWarnings += $apps.Failures
 
+$edgeFiles = $null
 if ($flags.RemoveEdge) {
     Write-Host "Removing Microsoft Edge$(if ($flags.RemoveWebView) { ' and WebView2' })..."
-    Remove-EdgeFiles -MountPath $mountDir -Architecture $architecture -IncludeWebView:([bool]$flags.RemoveWebView)
+    $edgeFiles = Remove-EdgeFiles -MountPath $mountDir -Architecture $architecture -IncludeWebView:([bool]$flags.RemoveWebView)
 }
 if ($flags.RemoveOneDrive) {
     Write-Host "Removing OneDrive..."
@@ -435,6 +482,17 @@ if ($flags.RemoveOneDrive) {
 }
 if ($flags.RemoveCapabilities) {
     $Script:buildWarnings += Invoke-CapabilityRemovalStage -MountPath $mountDir -LanguageCode $languageCode
+    $Script:buildWarnings += Invoke-OptionalFeatureRemovalStage -MountPath $mountDir -Architecture $architecture
+}
+
+#---------[ Component cleanup (before .NET 3.5) ]---------#
+# Upstream WinUI order: clean and reset the component base first, then add .NET
+# 3.5. /ResetBase therefore cannot drop the NetFx3 payload, so it is no longer
+# suppressed when -EnableNetFx3 is used (the image is smaller as a result).
+if ($buildProfile.SkipCleanup) {
+    Write-Host "Skipping component cleanup (-Fast)."
+} elseif (-not (Invoke-ComponentCleanup -MountPath $mountDir -NoResetBase:$KeepUpdateUninstall)) {
+    $Script:buildWarnings++
 }
 
 #---------[ .NET 3.5 / drivers ]---------#
@@ -453,7 +511,8 @@ if ($DriverPath) {
 }
 
 #---------[ Offline registry ]---------#
-$tweaks = Invoke-RegistryStage -MountPath $mountDir -Flags $flags -Skip $SkipTweak -RemovedPackages $apps.Removed
+Assert-BuildNotCancelled
+$tweaks = Invoke-RegistryStage -MountPath $mountDir -Flags $flags -Skip $SkipTweak -RemovedPackages $apps.Removed -EdgeFiles $edgeFiles
 $Script:buildWarnings += $tweaks.Failures
 
 #---------[ Answer file & first-boot scripts ]---------#
@@ -467,23 +526,30 @@ Write-UnattendFile -Xml $unattendXml -Path "$mountDir\Windows\System32\Sysprep\u
 $payloadFiles = Get-Tiny11PayloadFiles -Payload:$Payload -Browser $Browser
 Install-ImagePayload -MountPath $mountDir -Commands $tweaks.FirstBoot -PackageFiles $payloadFiles.PackageFiles -FirstLogonFiles $payloadFiles.FirstLogonFiles
 
-#---------[ Component cleanup, commit, export ]---------#
-if ($buildProfile.SkipCleanup) {
-    Write-Host "Skipping component cleanup (-Fast)."
-} elseif (-not (Invoke-ComponentCleanup -MountPath $mountDir -NoResetBase:$EnableNetFx3)) {
-    $Script:buildWarnings++
-}
+$redundant = $null
+if ($RemoveRedundantData) { $redundant = Remove-OfflineRedundantData -MountPath $mountDir }
+
+#---------[ Commit, export ]---------#
+Assert-BuildNotCancelled
 Write-Host "Committing and unmounting the Windows image..."
 if (-not (Invoke-SafeDismountImage -Path $mountDir -Save)) {
     throw "Failed to commit/unmount the install image."
 }
+if ($updateResults.Count) {
+    $sourceMetadata = Resolve-ServicedImageExpectation -Expected $sourceMetadata -Committed (Get-InstallImageMetadata -ImagePath $wimFilePath -Index 1)
+}
+Assert-BuildNotCancelled
 $null = Export-FinalInstallImage -WorkRoot $workRoot -BuildProfile $buildProfile -CompressionEngine $CompressionEngine -CompressionLevel $CompressionLevel -CompressionThreads $CompressionThreads
 Assert-InstallImageMetadata -ImagePath (Join-Path $workRoot ('sources\' + $buildProfile.ImageFileName)) -Expected $sourceMetadata -RepairMissing
 
 #---------[ boot.wim, answer file, ISO ]---------#
+Assert-BuildNotCancelled
 $Script:buildWarnings += Invoke-BootImageStage -WorkRoot $workRoot -ScratchRoot $ScratchRoot -DriverPath $DriverPath
+$bootShrink = if ($ShrinkBootImage) { Invoke-BootImageShrink -WorkRoot $workRoot } else { $null }
+$omittedNetFx3Bytes = if ($OmitNetFx3Payload) { Remove-SetupNetFx3Payload -WorkRoot $workRoot } else { [long]0 }
 Write-UnattendFile -Xml $unattendXml -Path "$workRoot\autounattend.xml"
-$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture -OscdimgPath $Script:oscdimgPath `
+Assert-BuildNotCancelled
+$isoBytes = New-Tiny11Iso -WorkRoot $workRoot -OutputIso $OutputIso -Architecture $architecture -OscdimgPath $Script:oscdimgPath -PublishedPath ([ref]$OutputIso) `
     -Label "TINY11_$($info.DisplayVersion)_$($architecture.ToUpperInvariant())" -NoPrompt:$NoPrompt
 
 $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
@@ -494,11 +560,16 @@ $sha256 = Write-BuildManifest -IsoPath $OutputIso -Data @{
     removedApps = $apps.Removed
     tweakGroups = $tweaks.Applied
     warnings    = $Script:buildWarnings
+    servicing   = @{ keepUpdateUninstall = [bool]$KeepUpdateUninstall; updates = $updateResults; omittedNetFx3Bytes = $omittedNetFx3Bytes
+                     bootImage = $bootShrink; redundantData = $redundant; edgeFiles = $edgeFiles; finalVersion = $sourceMetadata.Version }
 }
 
 #---------[ Cleanup & summary ]---------#
 Write-Host "Cleaning up work folders..."
-foreach ($mountName in 'scratchdir', 'scratchdir_boot') {
+# Mount folders must go before the work root: Remove-ScratchMountDirectory checks
+# whether a directory is still a registered DISM mount, and once its parent is
+# deleted that check can no longer see it. Order is load-bearing.
+foreach ($mountName in 'scratchdir', 'scratchdir_boot', 'scratchdir_dism') {
     Remove-ScratchMountDirectory -ScratchRoot $ScratchRoot -MountName $mountName
 }
 Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue
