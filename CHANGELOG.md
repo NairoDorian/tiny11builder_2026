@@ -25,6 +25,7 @@
   - Documented that nothing else needs the internet during a build.
 - **GUI help:** mouse-over help for every interactive control (81 entries, wrapped and shown for 20 s), enforced by a test. README *Getting the ISO*, *Working offline* and tab descriptions updated.
 - **Fixes found in the code pass:**
+  - downloading a copied link failed at the first progress update for every real ISO ("Cannot convert value 9062821888 to type System.Int32"): sizes above 2 GB hit the Int32 `[Math]::Max` overload. The GUI and `tiny11iso.ps1` now share `Format-IsoDownloadProgress` (Int64-safe, estimates over 24 h no longer wrap), and a progress display error no longer aborts the transfer (8 new checks with a 9 GB total);
   - closing the window during a build force-killed DISM; it now cancels safely and closes afterwards;
   - cancellation now fires once, so emergency cleanup cannot be interrupted;
   - an output ISO that is mounted/open is refused at the start, and a lock appearing at publish time keeps the verified ISO under a dated name instead of deleting it;

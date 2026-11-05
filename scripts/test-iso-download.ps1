@@ -174,6 +174,28 @@ try {
     CheckThrows 'retry budget is bounded'            { Save-WindowsIsoDownload -Url $good -Destination (Join-Path $root 'dl7') -Client $c7 -Retries 0 -RetryDelaySeconds @(0) -Catalog $dataCatalog 6>$null }
     Check 'partial kept for a later resume'          (Test-Path -LiteralPath (Join-Path $root 'dl7\Win11_26H2_English_x64.iso.part'))
 
+    # A failing progress display must not abort the transfer.
+    $server8 = New-Object Tiny11FakeIsoServer; $server8.Data = $data
+    $saved8 = Save-WindowsIsoDownload -Url $good -Destination (Join-Path $root 'dl8') -Client (& $newClient $server8) -RetryDelaySeconds @(0) -SkipVerification -OnProgress { param($p) throw 'display broke' } 6>$null 3>$null
+    Check 'throwing progress callback does not abort' ($saved8 -and (Get-FileHash -LiteralPath $saved8.Path -Algorithm SHA256).Hash -eq $dataSha)
+
+    Write-Host '== Progress formatting for real ISO sizes (> Int32) =='
+    # Same record shape the downloader emits; 9062821888 bytes is a real 26H2 ISO.
+    $big = [long]9062821888
+    $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'download'; Bytes = [long]4531410944; Total = $big; BytesPerSecond = 25MB })
+    Check 'percent of a 9 GB total'                  ($view.Percent -eq 50)
+    Check 'GB amounts in the status line'            ($view.Text -match '^4[.,]22 of 8[.,]44 GB at 25[.,]0 MB/s, about 0:02:52 left$')
+    $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'download'; Bytes = [long]0; Total = $big; BytesPerSecond = 50000 })
+    Check 'estimates beyond 24 hours are not wrapped' ($view.Percent -eq 0 -and $view.Text -match 'about 50:20:56 left$')
+    $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'download'; Bytes = [long]1; Total = $big; BytesPerSecond = 0.0000001 })
+    Check 'absurd estimate shows ?'                  ($view.Text -match 'about \? left$')
+    $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'download'; Bytes = $big; Total = $big; BytesPerSecond = 0 })
+    Check 'complete download is 100 percent'         ($view.Percent -eq 100 -and $view.Text -match 'about \? left$')
+    $view = Format-IsoDownloadProgress -Progress ([pscustomobject]@{ Phase = 'verify'; Bytes = 37; Total = 100; BytesPerSecond = 0 })
+    Check 'verify phase reports the hash percent'    ($view.Percent -eq 37 -and $view.Text -match '37%')
+    $callers = (Get-Content -Raw -LiteralPath (Join-Path $repo 'lib\tiny11gui.psm1')) + (Get-Content -Raw -LiteralPath (Join-Path $repo 'tiny11iso.ps1'))
+    Check 'GUI and CLI share the formatter'          (([regex]::Matches($callers, 'Format-IsoDownloadProgress -Progress \$p')).Count -eq 2 -and $callers -notmatch '\[Math\]::Max\(1, \$p\.Total\)')
+
     Write-Host '== Assisted "Get Windows 11" hand-off =='
     $watch = Join-Path $root 'watch'; New-Item -ItemType Directory -Path $watch | Out-Null
     [IO.File]::WriteAllBytes((Join-Path $watch 'already-here.iso'), [byte[]]::new(64))

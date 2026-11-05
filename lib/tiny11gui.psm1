@@ -1918,10 +1918,9 @@ function Show-Tiny11BuilderForm {
                     Import-Module (Join-Path $root 'lib\tiny11download.psm1') -DisableNameChecking
                     $sync.Result = Save-WindowsIsoDownload -Url $url -Destination $folder -ExpectedSha256 $sha -OnProgress {
                         param($p)
-                        if ($p.Phase -eq 'verify') { $sync.Percent = [int]$p.Bytes; $sync.Text = "Verifying the download (SHA-256)... $([int]$p.Bytes)%"; return }
-                        $sync.Percent = [int](100 * $p.Bytes / [Math]::Max(1, $p.Total))
-                        $left = if ($p.BytesPerSecond -gt 0) { [TimeSpan]::FromSeconds(($p.Total - $p.Bytes) / $p.BytesPerSecond).ToString('hh\:mm\:ss') } else { '?' }
-                        $sync.Text = ('Downloading: {0:N2} of {1:N2} GB at {2:N1} MB/s, about {3} left' -f ($p.Bytes / 1GB), ($p.Total / 1GB), ($p.BytesPerSecond / 1MB), $left)
+                        $view = Format-IsoDownloadProgress -Progress $p
+                        $sync.Percent = $view.Percent
+                        $sync.Text = if ($p.Phase -eq 'verify') { $view.Text } else { "Downloading: $($view.Text)" }
                     }
                 } catch { $sync.Error = $_.Exception.Message }
             } @($url, $folder, $sha) $folder

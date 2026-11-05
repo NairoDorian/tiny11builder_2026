@@ -207,6 +207,31 @@ function Test-TransientDownloadError {
     return ([string]$ErrorRecord.Exception.Message -match 'ended early')
 }
 
+function Format-IsoDownloadProgress {
+    # Turns a Save-WindowsIsoDownload progress record into a 0-100 percent and
+    # a status line, shared by the GUI and tiny11iso.ps1. ISO sizes exceed
+    # Int32 (about 9 GB), so everything is computed in [double]: an Int32 literal
+    # next to a size, as in [Math]::Max(1, $p.Total), binds the Int32 overload.
+    param([Parameter(Mandatory = $true)]$Progress)
+    $bytes = [double]$Progress.Bytes
+    if ($Progress.Phase -eq 'verify') {
+        $percent = [int][Math]::Min(100.0, [Math]::Max(0.0, $bytes))
+        return [pscustomobject]@{ Percent = $percent; Text = "Verifying the download (SHA-256)... $percent%" }
+    }
+    $total = [double]$Progress.Total; $speed = [double]$Progress.BytesPerSecond
+    $percent = if ($total -gt 0) { [int][Math]::Min(100.0, [Math]::Floor(100.0 * $bytes / $total)) } else { 0 }
+    $left = '?'
+    if ($speed -gt 0 -and $total -ge $bytes) {
+        $seconds = ($total - $bytes) / $speed
+        if ($seconds -lt 100.0 * 86400) {   # TimeSpan overflows on absurd estimates; hours are not wrapped at 24
+            $span = [TimeSpan]::FromSeconds($seconds)
+            $left = '{0}:{1:mm\:ss}' -f [long][Math]::Floor($span.TotalHours), $span
+        }
+    }
+    $text = '{0:N2} of {1:N2} GB at {2:N1} MB/s, about {3} left' -f ($bytes / 1GB), ($total / 1GB), ($speed / 1MB), $left
+    return [pscustomobject]@{ Percent = $percent; Text = $text }
+}
+
 function Save-WindowsIsoDownload {
     # Downloads a Microsoft ISO link to $Destination (folder or .iso path).
     # Interrupted downloads keep <name>.iso.part + .part.json and resume with the
@@ -242,7 +267,7 @@ function Save-WindowsIsoDownload {
     if (-not $saved -and (Test-Path -LiteralPath $part)) { Remove-Item -LiteralPath $part -Force }
     $ownsClient = -not $Client
     $client = if ($Client) { $Client } else { New-Tiny11HttpClient -TimeoutSeconds 3600 }
-    $attempt = 0
+    $attempt = 0; $progressWarned = $false
     try {
         while ($true) {
             $offset = if (Test-Path -LiteralPath $part) { (Get-Item -LiteralPath $part).Length } else { [long]0 }
@@ -289,7 +314,12 @@ function Save-WindowsIsoDownload {
                         if ($written -gt $total) { throw 'The server sent more data than the advertised ISO size.' }
                         if ($OnProgress -and $clock.Elapsed.TotalSeconds - $lastReport -ge 0.5) {
                             $lastReport = $clock.Elapsed.TotalSeconds
-                            & $OnProgress ([pscustomobject]@{ Phase = 'download'; Bytes = $written; Total = $total; BytesPerSecond = ($written - $startBytes) / [Math]::Max(0.001, $clock.Elapsed.TotalSeconds) })
+                            $record = [pscustomobject]@{ Phase = 'download'; Bytes = [long]$written; Total = [long]$total; BytesPerSecond = ($written - $startBytes) / [Math]::Max(0.001, $clock.Elapsed.TotalSeconds) }
+                            # A progress display failure must never abort a multi-GB transfer; a stop request still does.
+                            try { & $OnProgress $record } catch {
+                                if ($_.Exception -is [Management.Automation.PipelineStoppedException]) { throw }
+                                if (-not $progressWarned) { $progressWarned = $true; Write-Warning "Progress display failed ($($_.Exception.Message)); the download continues." }
+                            }
                         }
                     }
                     $output.Flush($true)
